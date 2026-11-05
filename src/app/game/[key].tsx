@@ -1,296 +1,353 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { RegionTable } from '../../components/RegionTable';
-import { Sparkline } from '../../components/Sparkline';
-import { Button, DiscountBadge, EmptyState, Pill, PlatformTag, SectionTitle, Skeleton, tap } from '../../components/ui';
-import { americasCatalogEnabled } from '../../api/nintendo';
-import { formatMoney, timeLeft } from '../../domain/pricing';
-import { regionLabel } from '../../domain/regions';
-import { useFx, useGame, useRegionalPrices, useSteamDetails } from '../../hooks/queries';
-import { usePriceSummary } from '../../hooks/usePriceSummary';
-import { useWatchlist } from '../../state/watchlist';
-import { radius, space, useTheme } from '../../theme';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import type { AlertPrefs, ApiGame } from '@shared/api';
+import { formatMoney, timeLeft } from '@shared/pricing';
+import { regionLabel, switchRegion } from '@shared/regions';
+import type { ConvertedRegionPrice } from '@shared/types';
+import { errorText } from '../../api/client';
+import { PriceChart } from '../../components/PriceChart';
+import { PriceSpread } from '../../components/PriceSpread';
+import { Button, Cover, EmptyState, Group, haptic, PlatformLabel, Row, Sheet, Skeleton, SwitchRow } from '../../components/ui';
+import { useFx, useGameDetail, useIsWatched, usePriceSummary, useWatchActions } from '../../hooks/queries';
+import { ago, shortDate } from '../../lib/format';
+import { enableAlerts } from '../../services/push';
+import { useSettings } from '../../state/settings';
+import { font, GUTTER, radius, space, useTheme } from '../../theme';
+import { Text } from '../../theme/Text';
+
+const GROUP_NAMES = { americas: 'the Americas', europe: 'Europe', japan: 'Japan' } as const;
 
 export default function GameScreen() {
   const { key } = useLocalSearchParams<{ key: string }>();
   const { c } = useTheme();
-  const watched = useWatchlist((s) => s.items[key]);
-  const game = useGame(key, watched?.game);
+  const { width } = useWindowDimensions();
+  const q = useGameDetail(key);
+  const d = q.data;
+  const s = usePriceSummary(d?.game.platform ?? 'switch', d?.prices ?? []);
+  const fx = useFx().data;
+  const watch = useIsWatched(key);
+  const { save, remove } = useWatchActions();
+  const alertsPrompted = useSettings((x) => x.alertsPrompted);
+  const [primer, setPrimer] = useState(false);
 
-  if (!game.data) {
+  if (!d) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        {game.isError ? (
-          <EmptyState icon="alert-circle-outline" title="Couldn't find this game" action={{ label: 'Try again', onPress: () => game.refetch() }} />
+        {q.isError ? (
+          <View style={{ paddingTop: 120 }}>
+            <EmptyState title="Couldn't open this game" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
+          </View>
         ) : (
-          <ActivityIndicator style={{ marginTop: 160 }} color={c.textDim} />
+          <View>
+            <Skeleton height={(width * 9) / 16} rounded={0} />
+            <View style={{ padding: GUTTER, gap: space.md }}>
+              <Skeleton height={26} width="70%" />
+              <Skeleton height={14} width="40%" />
+              <Skeleton height={120} rounded={radius.lg} style={{ marginTop: space.lg }} />
+            </View>
+          </View>
         )}
       </View>
     );
   }
-  return <GameDetail gameKey={key} />;
-}
 
-function GameDetail({ gameKey }: { gameKey: string }) {
-  const { c } = useTheme();
-  const watchItem = useWatchlist((s) => s.items[gameKey]);
-  const { add, remove, setTarget, record } = useWatchlist.getState();
-  const { data: base } = useGame(gameKey, watchItem?.game);
-  const regional = useRegionalPrices(base);
-  const game = regional.data?.game ?? base!;
-  const prices = regional.data?.prices ?? [];
-  const s = usePriceSummary(game, prices);
-  const fx = useFx().data;
-  const steam = useSteamDetails(game.steamAppId);
-  const [targetText, setTargetText] = useState(watchItem?.target?.toString() ?? '');
-
-  // Each time we have a fresh best price for a watched game, add it to its history.
-  // Same-window readings replace each other, so re-running this is harmless.
+  const g = d.game;
+  const isSteam = g.platform === 'steam';
   const best = s.best;
-  const watching = !!watchItem;
-  const bestConverted = best?.converted;
-  const bestCountry = best?.country;
-  useEffect(() => {
-    if (watching && bestConverted !== undefined && bestCountry && regional.isSuccess) record(gameKey, bestConverted, bestCountry);
-  }, [watching, bestConverted, bestCountry, regional.isSuccess, regional.dataUpdatedAt, gameKey, record]);
-
-  const bestRegion = best ? regionLabel(best.country) : undefined;
+  const placeholder = 'placeholder' in d;
   const homeIsBest = best && s.home && best.country === s.home.country;
-  const left = timeLeft(best?.saleEndsAt);
-  const isSteam = game.platform === 'steam';
-  const missingGroups =
-    !isSteam && regional.isSuccess
-      ? [!game.nsuids?.americas && (americasCatalogEnabled ? 'Americas' : null), !game.nsuids?.europe && 'Europe', !game.nsuids?.japan && 'Japan'].filter(Boolean)
-      : [];
+  // On Steam you can only buy at your own store's price, so that is the headline
+  const headline = isSteam ? (s.home ?? best) : best;
+  const left = timeLeft(headline?.saleEndsAt);
+  const atLowest = headline?.converted !== undefined && d.lowest && headline.converted <= d.lowest.price + 0.01;
+  const checked = d.prices.length ? Math.min(...d.prices.map((p) => p.checkedAt)) : undefined;
 
   const toggleWatch = () => {
-    tap();
-    if (watchItem) remove(gameKey);
-    else add(game);
+    if (watch) {
+      haptic('light');
+      remove.mutate(g.key);
+      return;
+    }
+    haptic('success');
+    save.mutate({ game: g as ApiGame, input: {} });
+    if (!alertsPrompted && RNPlatform.OS !== 'web') setPrimer(true);
   };
 
-  const applyTarget = (value?: number) => {
-    const v = value !== undefined ? Math.round(value * 100) / 100 : undefined;
-    setTarget(gameKey, v);
-    setTargetText(v !== undefined ? String(v) : '');
+  const closePrimer = () => {
+    setPrimer(false);
+    useSettings.getState().set({ alertsPrompted: true });
   };
 
   return (
-    <>
-      <Stack.Screen options={{ title: '' }} />
-      <ScrollView
-        style={{ backgroundColor: c.bg }}
-        contentContainerStyle={{ paddingBottom: 48 }}
-        refreshControl={<RefreshControl refreshing={regional.isRefetching} onRefresh={() => void regional.refetch()} tintColor={c.textDim} />}
-      >
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 56 }} refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}>
         <View>
-          <Image source={steam.data?.image ?? game.image} style={[styles.hero, { backgroundColor: c.surface2 }]} contentFit="cover" transition={200} />
-          <View style={styles.heroShade} />
+          <Cover uri={g.image} title={g.title} platform={g.platform} width={width} height={(width * 9) / 16} rounded={0} />
+          <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']} style={styles.topShade} pointerEvents="none" />
+          <LinearGradient colors={[c.scrim, c.scrimEnd]} style={styles.bottomShade} pointerEvents="none" />
         </View>
 
         <View style={styles.pad}>
-          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-            <PlatformTag platform={game.platform} />
-            {steam.data?.metacritic ? <Pill text={`Metacritic ${steam.data.metacritic}`} /> : null}
-          </View>
-          <Text style={[styles.title, { color: c.text }]}>{game.title}</Text>
-          <Text style={[styles.meta, { color: c.textDim }]}>
-            {[game.publisher ?? steam.data?.publisher, formatRelease(game.releaseDate ?? steam.data?.releaseDate)].filter(Boolean).join(' · ')}
+          <PlatformLabel platform={g.platform} />
+          <Text variant="largeTitle" style={{ marginTop: space.xs }} accessibilityRole="header">
+            {g.title}
+          </Text>
+          <Text variant="footnote" tone="subtle" style={{ marginTop: space.xs }}>
+            {[g.publisher, shortDate(g.releaseDate)].filter(Boolean).join(' · ')}
           </Text>
 
-          {/* Best price */}
-          <View style={[styles.bestCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-            {regional.isPending ? (
-              <View style={{ gap: 10 }}>
-                <Skeleton height={14} width="30%" />
-                <Skeleton height={34} width="55%" />
-                <Skeleton height={14} width="70%" />
-              </View>
-            ) : best && best.converted !== undefined ? (
+          <View style={styles.priceBlock}>
+            {placeholder && !headline ? (
+              <Skeleton height={44} width="55%" />
+            ) : headline?.converted !== undefined ? (
               <>
-                <Text style={[styles.label, { color: c.textDim }]}>{isSteam ? 'CHEAPEST STEAM REGION' : 'BEST PRICE RIGHT NOW'}</Text>
-                <View style={styles.bestLine}>
-                  <Text style={[styles.bestPrice, { color: c.text }]}>{formatMoney(best.converted, s.homeCurrency)}</Text>
-                  <DiscountBadge percent={best.discountPercent} large />
-                </View>
-                <Text style={[styles.bestWhere, { color: c.textDim }]}>
-                  {bestRegion?.flag} {bestRegion?.name}
-                  {best.current.currency !== s.homeCurrency ? ` · ${formatMoney(best.current.amount, best.current.currency)}` : ''}
+                <Text variant="overline" tone="subtle">
+                  {isSteam ? 'Your Steam price' : homeIsBest ? 'Best price, in your eShop' : 'Best price right now'}
                 </Text>
-                {!homeIsBest && s.home?.converted !== undefined && s.savingVsHome !== undefined && s.savingVsHome >= 0.01 ? (
-                  <View style={[styles.saving, { backgroundColor: c.goodBg }]}>
-                    <Ionicons name="trending-down" size={16} color={c.good} />
-                    <Text style={{ color: c.good, fontWeight: '700', flex: 1 }}>
-                      {Math.round(s.savingVsHome * 100)}% less than your {isSteam ? 'store' : 'eShop'} ({formatMoney(s.home.converted, s.homeCurrency)})
-                    </Text>
-                  </View>
-                ) : homeIsBest ? (
-                  <View style={[styles.saving, { backgroundColor: c.goodBg }]}>
-                    <Ionicons name="checkmark-circle" size={16} color={c.good} />
-                    <Text style={{ color: c.good, fontWeight: '700' }}>Your own {isSteam ? 'store' : 'eShop'} is the cheapest</Text>
-                  </View>
-                ) : null}
-                {left ? (
-                  <Text style={[styles.ends, { color: c.warn }]}>
-                    <Ionicons name="time-outline" size={13} color={c.warn} /> Sale ends in {left}
+                <View style={styles.priceLine}>
+                  <Text variant="priceXL" accessibilityLabel={`${formatMoney(headline.converted, s.currency)}${headline.discountPercent ? `, ${headline.discountPercent}% off` : ''}`}>
+                    {formatMoney(headline.converted, s.currency)}
+                  </Text>
+                  {headline.discountPercent ? (
+                    <View style={[styles.off, { backgroundColor: c.signal }]}>
+                      <Text variant="priceS" style={{ color: c.signalInk }}>
+                        −{headline.discountPercent}%
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+                {!isSteam ? (
+                  <Text variant="callout" tone="muted">
+                    {regionLabel(headline.country).flag} {regionLabel(headline.country).name}
+                    {headline.current.currency !== s.currency ? `  ·  ${formatMoney(headline.current.amount, headline.current.currency)}` : ''}
+                  </Text>
+                ) : headline.sale ? (
+                  <Text variant="callout" tone="muted">
+                    Usually {formatMoney(headline.convertedRegular, s.currency)}
                   </Text>
                 ) : null}
+                <View style={{ gap: space.xs, marginTop: space.sm }}>
+                  {!isSteam && !homeIsBest && s.savingVsHome && s.savingVsHome >= 0.01 && s.home?.converted !== undefined ? (
+                    <Fact tone="signal" icon="trending-down">
+                      {Math.round(s.savingVsHome * 100)}% less than your eShop ({formatMoney(s.home.converted, s.currency)})
+                    </Fact>
+                  ) : null}
+                  {left ? (
+                    <Fact tone="warn" icon="time-outline">
+                      Sale ends in {left}
+                    </Fact>
+                  ) : null}
+                  {atLowest && headline.sale ? (
+                    <Fact tone="signal" icon="ribbon-outline">
+                      Lowest price we've recorded
+                    </Fact>
+                  ) : d.lowest ? (
+                    <Fact tone="muted" icon="stats-chart-outline">
+                      Lowest recorded: {formatMoney(d.lowest.price, s.currency)} in {regionLabel(d.lowest.country).name}, {shortDate(d.lowest.at)}
+                    </Fact>
+                  ) : null}
+                </View>
               </>
-            ) : regional.isError ? (
-              <Text style={{ color: c.textDim }}>Couldn't load prices. Pull down to retry.</Text>
-            ) : prices.length && !fx ? (
-              <Text style={{ color: c.textDim }}>Waiting for exchange rates…</Text>
             ) : (
-              <Text style={{ color: c.textDim }}>Not sold in any of your selected regions right now.</Text>
+              <Text variant="body" tone="muted">
+                {d.prices.length && !fx ? 'Loading exchange rates…' : 'Not sold in any of your regions right now.'}
+              </Text>
             )}
 
             <View style={styles.actions}>
               <Button
-                label={watchItem ? 'Watching' : 'Watch price'}
-                icon={watchItem ? 'heart' : 'heart-outline'}
+                label={watch ? 'Watching' : 'Watch price'}
+                icon={watch ? 'checkmark' : 'notifications-outline'}
+                variant={watch ? 'secondary' : 'primary'}
                 onPress={toggleWatch}
-                variant={watchItem ? 'secondary' : 'primary'}
                 style={{ flex: 1 }}
+                accessibilityLabel={watch ? 'Stop watching' : 'Watch price'}
               />
-              {game.storeUrl ? (
-                <Button label="Store" icon="open-outline" variant="secondary" onPress={() => Linking.openURL(game.storeUrl!)} />
+              {g.storeUrl ? (
+                <Button label="Store" icon="open-outline" variant="secondary" onPress={() => Linking.openURL(g.storeUrl!)} accessibilityLabel={`Open in ${isSteam ? 'Steam' : 'the Nintendo eShop'}`} />
               ) : null}
             </View>
           </View>
-
-          {/* Target price */}
-          {watchItem ? (
-            <View style={[styles.block, { backgroundColor: c.surface, borderColor: c.border }]}>
-              <SectionTitle>Alert me at</SectionTitle>
-              <View style={styles.targetRow}>
-                <View style={[styles.targetInput, { backgroundColor: c.surface2, borderColor: c.border }]}>
-                  <Text style={{ color: c.textDim, fontWeight: '700' }}>{s.homeCurrency}</Text>
-                  <TextInput
-                    value={targetText}
-                    onChangeText={setTargetText}
-                    onEndEditing={() => {
-                      const v = parseFloat(targetText.replace(',', '.'));
-                      applyTarget(Number.isFinite(v) && v >= 0 ? v : undefined);
-                    }}
-                    keyboardType="decimal-pad"
-                    placeholder="Any price"
-                    placeholderTextColor={c.textFaint}
-                    style={[styles.targetText, { color: c.text }]}
-                  />
-                </View>
-                {watchItem.target !== undefined ? (
-                  <Pressable onPress={() => applyTarget(undefined)} hitSlop={8}>
-                    <Text style={{ color: c.textDim }}>Clear</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-              {best?.converted ? (
-                <View style={styles.quick}>
-                  {[0.9, 0.75, 0.5].map((f) => (
-                    <Pressable key={f} onPress={() => applyTarget(best.converted! * f)} style={[styles.quickChip, { borderColor: c.border }]}>
-                      <Text style={{ color: c.text, fontWeight: '600', fontSize: 13 }}>
-                        −{Math.round((1 - f) * 100)}% · {formatMoney(best.converted! * f, s.homeCurrency)}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-              <Text style={[styles.hint, { color: c.textFaint }]}>
-                You'll get a notification when the best price in your regions drops to this. Turn alerts on in Settings.
-              </Text>
-            </View>
-          ) : null}
-
-          {/* History */}
-          {watchItem && watchItem.history.length >= 2 ? (
-            <View style={[styles.block, { backgroundColor: c.surface, borderColor: c.border }]}>
-              <SectionTitle
-                right={
-                  watchItem.lowest !== undefined ? (
-                    <Text style={{ color: c.good, fontWeight: '700', fontSize: 12 }}>Lowest seen {formatMoney(watchItem.lowest, s.homeCurrency)}</Text>
-                  ) : null
-                }
-              >
-                Price since you started watching
-              </SectionTitle>
-              <Sparkline points={watchItem.history} color={c.accent} />
-            </View>
-          ) : null}
-
-          {/* Regions */}
-          <View style={{ marginTop: space.xl }}>
-            <SectionTitle right={regional.isFetching ? <ActivityIndicator size="small" color={c.textDim} /> : null}>
-              {isSteam ? 'Steam price by region' : 'Price by region'}
-            </SectionTitle>
-            {isSteam ? (
-              <Text style={[styles.hint, { color: c.textDim, marginBottom: space.sm }]}>
-                Steam sells at the price of your account's country, so this is for comparison. Changing store region breaks Steam's rules.
-              </Text>
-            ) : null}
-            {s.ranked.length ? (
-              <RegionTable ranked={s.ranked} homeCountry={s.home?.country} homeCurrency={s.homeCurrency} />
-            ) : regional.isPending ? (
-              <View style={{ gap: 8 }}>
-                {[0, 1, 2, 3].map((i) => (
-                  <Skeleton key={i} height={54} />
-                ))}
-              </View>
-            ) : (
-              <Text style={{ color: c.textDim }}>No regional prices found.</Text>
-            )}
-            {missingGroups.length ? (
-              <Text style={[styles.hint, { color: c.textFaint }]}>Couldn't match this game in: {missingGroups.join(', ')}.</Text>
-            ) : null}
-          </View>
-
-          {steam.data?.description ? (
-            <View style={{ marginTop: space.xl }}>
-              <SectionTitle>About</SectionTitle>
-              <Text style={{ color: c.textDim, lineHeight: 21 }}>{steam.data.description}</Text>
-            </View>
-          ) : null}
-
-          <Text style={[styles.footer, { color: c.textFaint }]}>
-            Prices from {isSteam ? 'the Steam store' : 'Nintendo eShop'}, converted to {s.homeCurrency} with daily exchange rates
-            {fx ? ` (${new Date(fx.updatedAt).toLocaleDateString()})` : ''}. Your bank's rate and fees will differ a little.
-          </Text>
         </View>
+
+        {watch ? <AlertSettings game={g as ApiGame} target={watch.target} alerts={watch.alerts} currency={s.currency} suggested={headline?.converted} /> : null}
+
+        {s.ranked.length ? (
+          <View style={[styles.pad, { marginTop: space.xxxl }]}>
+            <Text variant="title">{isSteam ? 'Steam prices by region' : 'Every region'}</Text>
+            <Text variant="footnote" tone="subtle" style={{ marginTop: 2, marginBottom: space.lg }}>
+              {isSteam ? "Steam charges your account's country price, so this is for comparison only." : `Converted to ${s.currency}, cheapest first.`}
+            </Text>
+            <PriceSpread ranked={s.ranked} homeCountry={s.home?.country} currency={s.currency} />
+            <View style={{ marginTop: space.lg }}>
+              {s.ranked.map((p, i) => (
+                <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} />
+              ))}
+            </View>
+            {d.unmatched.length ? (
+              <Text variant="footnote" tone="subtle" style={{ marginTop: space.md }}>
+                We couldn't confirm this exact game in {d.unmatched.map((u) => GROUP_NAMES[u]).join(' or ')}, so we left those prices out rather than risk showing the wrong game.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {!placeholder ? (
+          <View style={[styles.pad, { marginTop: space.xxxl }]}>
+            <Text variant="title">Price history</Text>
+            <Text variant="footnote" tone="subtle" style={{ marginTop: 2, marginBottom: space.lg }}>
+              Best price each day across your regions{d.trackedSince ? `, since ${shortDate(d.trackedSince)}` : ''}.
+            </Text>
+            <PriceChart points={d.history} currency={s.currency} />
+          </View>
+        ) : null}
+
+        <Text variant="footnote" tone="subtle" style={[styles.pad, { marginTop: space.xxxl }]}>
+          {checked ? `Prices confirmed with ${isSteam ? 'Steam' : 'the Nintendo eShop'} ${ago(checked)}. ` : ''}
+          {fx ? `Converted at European Central Bank rates from ${shortDate(fx.asOf)}${headline && fx.sources[headline.current.currency] === 'market' ? ` (${headline.current.currency} uses a market rate)` : ''}. ` : ''}
+          Your bank's rate and fees may differ slightly.
+        </Text>
+        {d.stale ? (
+          <Text variant="footnote" tone="warn" style={[styles.pad, { marginTop: space.sm }]}>
+            Some of these prices haven't been confirmed in over a day. Check the store before buying.
+          </Text>
+        ) : null}
+        {q.isFetching && placeholder ? <ActivityIndicator style={{ marginTop: space.xl }} color={c.subtle} /> : null}
       </ScrollView>
+
+      <Sheet visible={primer} onClose={closePrimer} title="Get a heads-up?">
+        <View style={{ paddingHorizontal: GUTTER, gap: space.md }}>
+          <Text variant="body" tone="muted">
+            We'll tell you when {g.title} goes on sale, hits its lowest price, or a sale is about to end. One alert per change, and nothing overnight.
+          </Text>
+          <Button label="Turn on alerts" onPress={() => (setPrimer(false), void enableAlerts())} />
+          <Button label="Not now" variant="quiet" onPress={closePrimer} />
+        </View>
+      </Sheet>
+    </View>
+  );
+}
+
+function Fact({ tone, icon, children }: { tone: 'signal' | 'warn' | 'muted'; icon: keyof typeof Ionicons.glyphMap; children: ReactNode }) {
+  const { c } = useTheme();
+  const color = tone === 'signal' ? c.signalText : tone === 'warn' ? c.warn : c.muted;
+  return (
+    <View style={styles.fact}>
+      <Ionicons name={icon} size={15} color={color} />
+      <Text variant="callout" style={{ color, flex: 1 }}>
+        {children}
+      </Text>
+    </View>
+  );
+}
+
+function RegionRow({ p, best, home, currency, first }: { p: ConvertedRegionPrice; best: boolean; home: boolean; currency: string; first: boolean }) {
+  const { c } = useTheme();
+  const r = regionLabel(p.country);
+  const note = switchRegion(p.country)?.note;
+  const detail = [home ? 'Your eShop' : undefined, p.current.currency !== currency ? formatMoney(p.current.amount, p.current.currency) : undefined, note].filter(Boolean).join(' · ');
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${r.name}, ${formatMoney(p.converted, currency)}${p.discountPercent ? `, ${p.discountPercent}% off` : ''}${best ? ', cheapest' : ''}${home ? ', your eShop' : ''}`}
+      style={[styles.region, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}
+    >
+      {best ? <View style={[styles.bestRule, { backgroundColor: c.signal }]} /> : null}
+      <Text style={styles.flag}>{r.flag}</Text>
+      <View style={{ flex: 1 }}>
+        <Text variant="bodyMedium" numberOfLines={1}>
+          {r.name}
+        </Text>
+        {detail ? (
+          <Text variant="footnote" tone="subtle" numberOfLines={1}>
+            {detail}
+          </Text>
+        ) : null}
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text variant="priceM" tone={best ? 'signal' : 'text'}>
+          {formatMoney(p.converted, currency)}
+        </Text>
+        {p.discountPercent ? (
+          <Text variant="priceXS" tone="subtle">
+            −{p.discountPercent}% · was {formatMoney(p.convertedRegular, currency)}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function AlertSettings({ game, target, alerts, currency, suggested }: { game: ApiGame; target?: number; alerts: AlertPrefs; currency: string; suggested?: number }) {
+  const { c } = useTheme();
+  const { save } = useWatchActions();
+  const alertsEnabled = useSettings((s) => s.alertsEnabled);
+  const [text, setText] = useState(target !== undefined ? String(target) : '');
+  useEffect(() => setText(target !== undefined ? String(target) : ''), [target]);
+
+  const set = (patch: Partial<AlertPrefs>) => save.mutate({ game, input: { alerts: patch } });
+  const commitTarget = (v?: number) => save.mutate({ game, input: { target: v === undefined ? null : Math.round(v * 100) / 100 } });
+  const footer = alertsEnabled ? undefined : RNPlatform.OS === 'web' ? 'Alerts arrive in the iOS and Android apps.' : 'Notifications are off. Turn them on in Settings to get these alerts.';
+
+  return (
+    <>
+      <Group title="Alert me when" footer={footer}>
+        <SwitchRow first label="It goes on sale" value={alerts.sale} onChange={(v) => set({ sale: v })} />
+        <SwitchRow label="It hits its lowest price" value={alerts.low} onChange={(v) => set({ low: v })} />
+        <SwitchRow label="A sale is about to end" detail="24 hours before" value={alerts.ending} onChange={(v) => set({ ending: v })} />
+        <SwitchRow label="The price drops at all" detail="Every further drop, even small ones" value={alerts.drop} onChange={(v) => set({ drop: v })} />
+        <Row
+          label="It reaches my price"
+          right={
+            <View style={[styles.target, { backgroundColor: c.raised }]}>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                onEndEditing={() => {
+                  const v = parseFloat(text.replace(',', '.'));
+                  commitTarget(Number.isFinite(v) && v > 0 ? v : undefined);
+                }}
+                placeholder={suggested ? (suggested * 0.75).toFixed(currency === 'JPY' ? 0 : 2) : 'Price'}
+                placeholderTextColor={c.subtle}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                accessibilityLabel={`Target price in ${currency}`}
+                style={[styles.targetInput, { color: c.text }]}
+              />
+              <Text variant="footnote" tone="subtle">
+                {currency}
+              </Text>
+            </View>
+          }
+        />
+      </Group>
+      {target !== undefined ? (
+        <Pressable onPress={() => commitTarget(undefined)} style={{ paddingHorizontal: GUTTER + space.xs, paddingTop: space.md }} hitSlop={10} accessibilityRole="button">
+          <Text variant="footnote" tone="muted">
+            Remove target price
+          </Text>
+        </Pressable>
+      ) : null}
     </>
   );
 }
 
-function formatRelease(date?: string): string | undefined {
-  if (!date) return undefined;
-  const t = Date.parse(date);
-  if (Number.isNaN(t)) return date;
-  return new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
 const styles = StyleSheet.create({
-  hero: { width: '100%', aspectRatio: 16 / 9 },
-  heroShade: { position: 'absolute', left: 0, right: 0, top: 0, height: 100, backgroundColor: 'rgba(0,0,0,0.35)' },
-  pad: { paddingHorizontal: space.lg, paddingTop: space.lg },
-  title: { fontSize: 26, fontWeight: '800', marginTop: space.sm, letterSpacing: -0.3 },
-  meta: { fontSize: 13.5, marginTop: 4 },
-  bestCard: { marginTop: space.lg, padding: space.lg, borderRadius: radius.lg, borderWidth: 1, gap: 6 },
-  label: { fontSize: 11.5, fontWeight: '800', letterSpacing: 0.8 },
-  bestLine: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  bestPrice: { fontSize: 36, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
-  bestWhere: { fontSize: 15 },
-  saving: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: space.sm, borderRadius: radius.md, marginTop: 4 },
-  ends: { fontSize: 13, fontWeight: '600', marginTop: 2 },
-  actions: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
-  block: { marginTop: space.lg, padding: space.lg, borderRadius: radius.lg, borderWidth: 1 },
-  targetRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  targetInput: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space.md, height: 44 },
-  targetText: { flex: 1, fontSize: 17, fontWeight: '700', height: '100%' },
-  quick: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: space.sm },
-  quickChip: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6 },
-  hint: { fontSize: 12, lineHeight: 17, marginTop: space.sm },
-  footer: { fontSize: 11.5, lineHeight: 16, marginTop: space.xl },
+  topShade: { position: 'absolute', top: 0, left: 0, right: 0, height: 110 },
+  bottomShade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 90 },
+  pad: { paddingHorizontal: GUTTER },
+  priceBlock: { marginTop: space.xxl, gap: space.xs },
+  priceLine: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  off: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm },
+  fact: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  actions: { flexDirection: 'row', gap: space.sm, marginTop: space.xl },
+  region: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, minHeight: 56 },
+  bestRule: { position: 'absolute', left: -GUTTER, top: space.md, bottom: space.md, width: 3, borderTopRightRadius: 2, borderBottomRightRadius: 2 },
+  flag: { fontSize: 22, width: 28, textAlign: 'center' },
+  target: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.md, height: 36, borderRadius: radius.sm, width: 132 },
+  targetInput: { flex: 1, height: '100%', fontFamily: font.monoMedium, fontSize: 15, textAlign: 'right', minWidth: 60 },
 });

@@ -1,21 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { friendlyError } from '../../api/http';
+import { FlashList } from '@shopify/flash-list';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import type { ApiListItem } from '@shared/api';
+import { errorText } from '../../api/client';
 import { GameRow } from '../../components/GameRow';
-import { Chip, ChipRow, EmptyState, ListSkeleton } from '../../components/ui';
-import { useDirectory, type DirectoryPlatform, type ListedGame } from '../../hooks/queries';
-import { platformMeta, radius, space, useTheme } from '../../theme';
+import { ScreenHeader } from '../../components/ScreenHeader';
+import { EmptyState, PlatformTabs, RowSkeleton } from '../../components/ui';
+import { useDirectory, type DirectoryPlatform } from '../../hooks/queries';
+import { font, GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
+import { Text } from '../../theme/Text';
 
-const FILTERS: { value: DirectoryPlatform; label: string; color?: string }[] = [
+const TABS: { value: DirectoryPlatform; label: string; dot?: string }[] = [
   { value: 'all-switch', label: 'All Switch' },
-  { value: 'switch2', label: 'Switch 2', color: platformMeta.switch2.color },
-  { value: 'switch', label: 'Switch', color: platformMeta.switch.color },
-  { value: 'steam', label: 'Steam', color: platformMeta.steam.color },
+  { value: 'switch2', label: 'Switch 2', dot: platformMeta.switch2.dot },
+  { value: 'switch', label: 'Switch', dot: platformMeta.switch.dot },
+  { value: 'steam', label: 'Steam', dot: platformMeta.steam.dot },
 ];
 
-function useDebounced<T>(value: T, ms = 350): T {
+function useDebounced<T>(value: T, ms = 300): T {
   const [v, setV] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setV(value), ms);
@@ -26,93 +29,72 @@ function useDebounced<T>(value: T, ms = 350): T {
 
 export default function DirectoryScreen() {
   const { c } = useTheme();
-  const insets = useSafeAreaInsets();
   const [platform, setPlatform] = useState<DirectoryPlatform>('all-switch');
   const [text, setText] = useState('');
   const query = useDebounced(text);
   const q = useDirectory(platform, query);
   const isSteam = platform === 'steam';
 
-  const items = useMemo(() => {
-    const seen = new Set<string>();
-    const out: ListedGame[] = [];
-    for (const page of q.data?.pages ?? []) for (const it of page.items) if (!seen.has(it.game.key)) (seen.add(it.game.key), out.push(it));
-    return out;
-  }, [q.data]);
-
-  const total = q.data?.pages[0]?.total;
+  const renderItem = useCallback(
+    ({ item }: { item: ApiListItem }) => <GameRow game={item.game} prices={item.prices} ticker={!isSteam} showPlatform={platform === 'all-switch'} />,
+    [isSteam, platform],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <View style={{ paddingTop: insets.top + space.md }}>
-        <Text style={[styles.h1, { color: c.text }]}>Directory</Text>
-        <Text style={[styles.subtitle, { color: c.textDim }]}>
-          {isSteam ? 'Search the Steam store' : `Every Switch game with live prices per region${total ? ` · ${total.toLocaleString()} games` : ''}`}
-        </Text>
-        <View style={[styles.search, { backgroundColor: c.surface2, borderColor: c.border }]}>
-          <Ionicons name="search" size={18} color={c.textFaint} />
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder={isSteam ? 'Search Steam games' : 'Search Switch games'}
-            placeholderTextColor={c.textFaint}
-            style={[styles.input, { color: c.text }]}
-            returnKeyType="search"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-          />
-          {text ? (
-            <Pressable onPress={() => setText('')} hitSlop={10}>
-              <Ionicons name="close-circle" size={18} color={c.textFaint} />
-            </Pressable>
-          ) : null}
-        </View>
-        <ChipRow>
-          {FILTERS.map((f) => (
-            <Chip key={f.value} label={f.label} active={platform === f.value} color={f.color} onPress={() => setPlatform(f.value)} />
-          ))}
-        </ChipRow>
+      <ScreenHeader title="Directory" subtitle={isSteam ? 'Search the Steam store' : q.total ? `${q.total.toLocaleString()} games, prices in every region you buy from` : 'Every Switch game, priced in every region'} />
+      <View style={[styles.search, { backgroundColor: c.raised }]}>
+        <Ionicons name="search" size={17} color={c.subtle} />
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          placeholder={isSteam ? 'Search Steam' : 'Search games'}
+          placeholderTextColor={c.subtle}
+          style={[styles.input, { color: c.text }]}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          accessibilityLabel="Search games"
+        />
+        {text ? (
+          <Pressable onPress={() => setText('')} hitSlop={12} accessibilityLabel="Clear search">
+            <Ionicons name="close-circle" size={17} color={c.subtle} />
+          </Pressable>
+        ) : null}
       </View>
-
-      <FlatList
-        data={items}
+      <PlatformTabs value={platform} options={TABS} onChange={setPlatform} />
+      <FlashList
+        data={q.items}
         keyExtractor={(it) => it.game.key}
+        renderItem={renderItem}
         keyboardDismissMode="on-drag"
-        renderItem={({ item }) => <GameRow game={item.game} prices={item.prices} showRegions={!isSteam} showPlatform={platform === 'all-switch'} />}
-        ItemSeparatorComponent={() => <View style={[styles.sep, { backgroundColor: c.border }]} />}
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           isSteam && query.trim().length < 2 ? (
-            <EmptyState icon="logo-steam" title="Search Steam" body="Type a game name. Open a game to compare its price across Steam regions." />
+            <EmptyState title="Search Steam" body="Type a game's name. Open it to compare prices across Steam regions." />
           ) : q.isPending ? (
-            <ListSkeleton />
+            <RowSkeleton />
           ) : q.isError ? (
-            <EmptyState icon="cloud-offline-outline" title="Couldn't load games" body={friendlyError(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
+            <EmptyState title="Couldn't load games" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
           ) : (
-            <EmptyState icon="search-outline" title="No games found" body="Check the spelling or try a shorter name." />
+            <EmptyState title="No games found" body={`Nothing matches "${query.trim()}". Check the spelling or try fewer words.`} />
           )
         }
-        onEndReachedThreshold={0.6}
+        onEndReachedThreshold={0.7}
         onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && q.fetchNextPage()}
-        ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xl }} color={c.textDim} /> : <View style={{ height: space.xl }} />}
+        ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xxl }} color={c.subtle} /> : <View style={{ height: space.xxl }} />}
       />
+      {q.isFetching && !q.isPending && !q.isFetchingNextPage ? (
+        <Text variant="caption" tone="subtle" style={styles.updating}>
+          Updating…
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { fontSize: 32, fontWeight: '800', letterSpacing: -0.5, paddingHorizontal: space.lg },
-  subtitle: { fontSize: 13.5, marginTop: 2, paddingHorizontal: space.lg },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginHorizontal: space.lg,
-    marginTop: space.md,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    height: 44,
-  },
-  input: { flex: 1, fontSize: 16, height: '100%' },
-  sep: { height: StyleSheet.hairlineWidth, marginLeft: space.lg + 128 + space.md },
+  search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginBottom: space.sm, paddingHorizontal: space.md, height: 44, borderRadius: radius.md },
+  input: { flex: 1, height: '100%', fontFamily: font.regular, fontSize: 16 },
+  updating: { position: 'absolute', top: 0, right: GUTTER },
 });

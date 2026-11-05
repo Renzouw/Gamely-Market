@@ -1,7 +1,7 @@
-import { convert, discountPercent, endsSoon, formatMoney, rankByPrice, summarize, timeLeft, withConversion } from '../domain/pricing';
-import { productCore, titleKey } from '../domain/match';
-import { guessHome, steamStoreCountry } from '../domain/regions';
-import type { FxRates, RegionPrice } from '../domain/types';
+import { convert, discountPercent, endsSoon, formatMoney, rankByPrice, summarize, timeLeft, withConversion } from '@shared/pricing';
+import { productCore, titleKey } from '@shared/match';
+import { guessHome, steamStoreCountry } from '@shared/regions';
+import type { FxRates, RegionPrice } from '@shared/types';
 
 const fx: FxRates = { base: 'USD', rates: { USD: 1, MXN: 20, GBP: 0.8, EUR: 0.9, JPY: 150 }, updatedAt: 0 };
 

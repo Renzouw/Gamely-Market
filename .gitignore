@@ -9,3 +9,5 @@ android/
 .env.local
 coverage/
 expo-env.d.ts
+server/node_modules/
+server/data/

@@ -1,91 +1,99 @@
 # Gamely
 
-A mobile app for finding game deals on Nintendo Switch 2, Switch and Steam. It checks every eShop region you can actually buy from, converts the prices into your currency, and tells you where a game is cheapest right now.
+A mobile app for game deals on Nintendo Switch 2, Switch and Steam. It compares every eShop region you can actually buy from, converts prices into your currency, and alerts you when a game you're watching goes on sale.
 
-Built with Expo (React Native), so it runs on iOS and Android from one codebase.
+There are two parts:
+
+- **The app** (repo root): Expo / React Native for iOS and Android.
+- **The server** (`server/`): polls the stores on a schedule, keeps price history, spots changes and sends push alerts.
 
 ## What it does
 
-**Deals.** Everything on sale, split into Switch 2, Switch and Steam. Each game shows its best price across your regions in your currency, which country that price is in, and how much less it is than your own eShop. Sort by popular, biggest discount, cheapest, ending soon or newest. Quick filters: 50%+ off, under a set price, and "Cheaper abroad" (only games at least 15% cheaper in another region than at home).
+**Deals.** Everything on sale for Switch 2, Switch or Steam. Each game shows the best price across your regions, where that price is, and how much less it is than your own eShop. Sort by popular, biggest discount, lowest price, ending soon or newest. Filter to 50% off or more, under a set price, or "Cheaper abroad".
 
-**Directory.** Search every Switch game, not just the ones on sale. Each row has a strip of the cheapest regions with the local price and the converted price side by side, so you can compare without opening the game. Steam search is here too.
+**Directory.** Every Switch game, on sale or not, with a line of the cheapest regions under each one. Steam search too.
 
-**Game page.** The best price up top, the saving against your home eShop, and the sale end time. Under that, every region ranked cheapest first with a bar that shows the price spread at a glance. Regions where buying is awkward (Brazil, Argentina, Japan) carry a short payment note.
+**Game page.** The best price, the saving against your eShop, when the sale ends and the lowest price on record. Below that, a price spread across every region, the full region list, and a price history chart you can scrub through.
 
-**Watchlist and alerts.** Save a game, set a price, and get a notification when the best price in your regions drops to it. The app records the price each time it checks, so watched games build up a small price history and a "lowest seen" figure.
+**Watchlist and alerts.** Watch a game and choose what you want to hear about: it goes on sale, hits its lowest price, a sale is about to end, any further drop, or it reaches your price. Alerts arrive as push notifications and are also kept in an Alerts tab.
 
-**Settings that make "best price" honest.** Pick your home eShop and currency, then switch off any regions you can't pay in. Every best price and saving in the app respects that list.
+**Settings that keep "best price" honest.** Pick your home eShop and currency, and untick regions you can't pay in. Every best price, saving and alert respects that list. Quiet hours hold alerts until morning.
 
-## How it's different from the price sites
+## Accuracy
 
-- Mobile first, with Steam and both Switch generations in one place.
-- "Best price" only counts shops you've said you can buy from, so the top result is something you can actually get.
-- Savings are shown against your own eShop, not just as a raw discount.
-- The directory shows regional prices inline instead of hiding them a tap away.
-- Price alerts and history live on your phone. No account needed.
+- **Prices come only from the stores.** Nintendo's own eShop price endpoint (the price charged at checkout) and Steam's store APIs. Catalog listings are only used to find games, never for prices.
+- **Exchange rates come from the European Central Bank.** The few currencies the ECB doesn't publish (ARS, CLP, COP, PEN and a handful more) use a market rate, and the app says so.
+- **Cross-region matching is strict.** Nintendo gives each regional group its own game IDs. We only link two listings when the product code matches, or the title matches and the publisher or release date agrees too. If we're not sure, we leave the region out and the app says so, rather than show the wrong game's price.
+- **Outages don't look like price changes.** If a store doesn't answer, we keep the last confirmed price and flag it as stale after 36 hours. A price is only removed when the store says the game is no longer sold there.
+- **Ended sales disappear on time.** A sale is hidden the moment its end time passes, even before the next check.
+- **Freshness is visible.** Lists and game pages say when prices were last confirmed. Settings › Data sources shows the health of every source.
+
+## How often prices update
+
+| What | How often |
+| --- | --- |
+| Games on anyone's watchlist, and sales ending within 48 hours | Every 10 minutes |
+| New sales (Nintendo catalogs and Steam specials) | Every 20 minutes |
+| Everything currently on sale | Every 30 minutes |
+| Every game in every region | Once a day |
+| Exchange rates | Every 6 hours (the ECB publishes once a day) |
+| "Sale ends soon" reminders | Hourly |
+
+Opening a game whose prices are more than 3 hours old triggers a fresh check on the spot. All intervals can be changed with env vars (see `server/.env.example`).
+
+## Alerts
+
+The server compares every refresh with the previous prices and decides, per person, whether something worth telling them happened. It only looks at that person's regions and currency, and for Steam only at the store their account buys in. Each change produces at most one alert (target price beats lowest price, which beats "on sale", which beats "dropped"), the same alert is never sent twice, and four or more alerts at once are rolled into one summary. Alerts that fall in quiet hours wait until they end, and alerts about a sale that has already finished are dropped. Pushes go through Expo's push service, which handles both Apple and Google, and dead tokens are cleaned up from delivery receipts.
 
 ## Running it
 
+### Server
+
+```bash
+cd server
+npm install
+npm run dev          # API on :8787, jobs start immediately
+npm test             # 39 tests, including a full price-change-to-push run
+```
+
+It stores everything in one SQLite file (Node's built-in SQLite, no database server needed). To deploy, build `server/Dockerfile` from the repo root and mount a volume at `/data`. Any host that runs a container with a disk works: Fly.io, Railway, Render, a small VPS.
+
+### App
+
 ```bash
 npm install
+cp .env.example .env   # point EXPO_PUBLIC_API_URL at your server
 npx expo start
+npm test               # app tests
+npm run typecheck
 ```
 
-Then open it in Expo Go, or press `i` / `a` for a simulator. Price alerts use a background task and notifications, which need a development build (`npx expo run:ios` or `npx expo run:android`, or `eas build --profile development`).
-
-Checks:
-
-```bash
-npm test           # unit tests
-npm run typecheck  # TypeScript
-```
-
-The web build is only useful for layout work. Browsers block the store APIs (CORS), so prices won't load there.
-
-## Where the prices come from
-
-| Data | Source | Needs a key? |
-| --- | --- | --- |
-| Switch prices per country | Nintendo's eShop price endpoint (`api.ec.nintendo.com`) | No |
-| Europe, Oceania and South Africa game list | Nintendo of Europe's game search | No |
-| Americas game list | Nintendo of America's store search (Algolia) | Yes, see below |
-| Japan | Nintendo Japan's software search, matched by product code | No |
-| Steam deals, search and regional prices | Steam store endpoints | No |
-| Exchange rates | open.er-api.com, refreshed daily | No |
-
-Nintendo gives games a different ID in each of its three regional groups (Americas, Europe/Oceania, Japan). Countries inside a group share IDs, so one lookup prices a game in all of them. The app matches the same game across groups by title, and uses the product code for Japan, where titles are in Japanese.
+Push alerts need a real phone and an EAS project ID in `app.json` (`expo.extra.eas.projectId`, from `npx eas-cli init`), then a development or production build (`eas build`). Expo Go is fine for everything else.
 
 ### Americas catalog
 
-Nintendo of America doesn't have an open catalog endpoint like Europe does. Their store search runs on Algolia, so the Americas lookup is off unless you supply search credentials. Copy `.env.example` to `.env` and fill in:
-
-```
-EXPO_PUBLIC_NA_SEARCH_APP_ID=
-EXPO_PUBLIC_NA_SEARCH_API_KEY=
-EXPO_PUBLIC_NA_SEARCH_INDEX=store_game_en_us
-```
-
-Without it the app still works for the Europe/Oceania group and Japan, and Settings shows the Americas catalog as not set up. Check Nintendo's terms before you ship with any credentials you didn't get from them directly. The cleaner long-term fix is a small backend of your own (see below).
+Nintendo of America has no open catalog endpoint like Europe does. Their store search runs on Algolia, so the Americas are off unless the server is given search credentials (`NA_SEARCH_*` in `server/.env.example`). Without them, the US, Canada, Mexico, Brazil and other Americas eShops are left out, and the app says so in Settings › Data sources. Check Nintendo's terms before you use any credentials you didn't get from them directly.
 
 ## Project layout
 
 ```
-src/
-  app/          screens: Deals, Directory, Watchlist, Settings, game/[key]
-  api/          store adapters (nintendo/, steam.ts, fx.ts) and the HTTP helper
-  domain/       regions, price conversion and ranking, title matching
-  state/        settings and watchlist (persisted with AsyncStorage)
-  services/     price alerts and the background check
-  components/   rows, region table, sparkline, small UI pieces
-  __tests__/    Jest tests for parsing, pricing, matching and alerts
+src/                app (Expo Router screens in src/app)
+shared/             types, regions, price maths and the API contract, used by both sides
+server/src/
+  sources/          store adapters (Nintendo, Steam, exchange rates)
+  ingest/           catalog sync, cross-region matching, price refresh
+  alerts/           who to alert about what, quiet hours
+  push/             Expo push sending and delivery receipts
+  api/              HTTP API, deal ranking, price history
+  jobs.ts           the schedule
+docs/design-audit.md   the design review of the first build and what changed
+DESIGN.md           colours, type, components and motion
 ```
 
-## Known limits and next steps
+## Known limits
 
-- **Not yet tested against the live stores.** The adapters follow how these public endpoints have historically responded, and the parsers are covered by tests with sample responses. The first run on a real phone may turn up a field that has been renamed. Each adapter keeps its field names in one place so that's a quick fix.
-- **Background checks are up to the OS.** iOS in particular runs them when it sees fit, often overnight. Pull to refresh on the Watchlist checks right away.
-- **Price history starts when you watch a game.** A shared backend that snapshots prices daily would give full history and all-time lows for every game, and would also be the right home for the cross-region ID matching and the Americas catalog.
-- **Hong Kong and Korea eShops** use their own catalogs and aren't covered yet.
-- **Steam regional prices are for comparison.** Steam charges the price of your account's country, and switching store region to get a cheaper price breaks Steam's rules. The app says so on every Steam game page.
+- **Not yet run against the live stores.** The development sandbox couldn't reach Nintendo, Steam, the ECB or Expo, so the adapters are written to these services' documented and historically observed responses and tested with hand-written sample responses, plus a full local run against a fake store. The first live run may turn up a renamed field; each adapter keeps its field names in one place.
+- **Hong Kong and Korea eShops** use separate catalogs and aren't covered yet.
+- **Steam regional prices are for comparison.** Steam charges your account country's price, and the app says so.
 
 Gamely isn't affiliated with Nintendo or Valve.

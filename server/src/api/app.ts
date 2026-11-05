@@ -1,0 +1,360 @@
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { Hono, type Context, type Next } from 'hono';
+import { compress } from 'hono/compress';
+import { cors } from 'hono/cors';
+import { z } from 'zod';
+import { DEFAULT_ALERTS, type ApiActivity, type ApiGameDetail, type ApiStatus, type ApiWatch, type SourceHealth } from '@shared/api';
+import { titleKey } from '@shared/match';
+import { convert } from '@shared/pricing';
+import { HOME_CURRENCIES, STEAM_REGIONS, SWITCH_REGIONS } from '@shared/regions';
+import { americasEnabled, config } from '../config';
+import { all, get, placeholders, run, type Db } from '../db';
+import { readFx } from '../ingest/fx';
+import { refreshGames } from '../ingest/prices';
+import { searchSteam } from '../sources/steam';
+import { getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow } from '../store';
+import { dailyBest, type HistoryRow } from './history';
+import { effectiveRegions, listDeals, searchGames } from './listings';
+import { queueAlertsForChanges } from '../alerts/run';
+
+interface DeviceRow {
+  id: string;
+  secret_hash: string;
+  currency: string;
+  home_region: string;
+  switch_regions: string;
+  steam_regions: string;
+}
+
+type Env = { Variables: { device: DeviceRow } };
+
+const ALL_COUNTRIES = new Set([...SWITCH_REGIONS.map((r) => r.code), ...STEAM_REGIONS.map((r) => r.code)]);
+const country = z.string().regex(/^[A-Z]{2}$/).refine((c) => ALL_COUNTRIES.has(c), 'Unknown region');
+const currency = z.string().refine((c) => HOME_CURRENCIES.includes(c), 'Unsupported currency');
+const csv = (v?: string) => (v ? v.split(',').map((s) => s.trim().toUpperCase()).filter((c) => ALL_COUNTRIES.has(c)) : []);
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+const SOURCE_LABELS: Record<string, string> = {
+  'nintendo-prices': 'Nintendo eShop prices',
+  'nintendo-eu-catalog': 'Nintendo Europe catalog',
+  'nintendo-us-catalog': 'Nintendo Americas catalog',
+  'nintendo-jp-catalog': 'Nintendo Japan catalog',
+  'steam-prices': 'Steam prices',
+  'steam-specials': 'Steam specials',
+  fx: 'Exchange rates (ECB)',
+};
+
+/** Tiny per-IP rate limit so one misbehaving client can't starve the rest. */
+function rateLimit(perMinute: number) {
+  const hits = new Map<string, { n: number; reset: number }>();
+  return async (c: Context, next: Next) => {
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || c.req.header('x-real-ip') || 'local';
+    const now = Date.now();
+    const h = hits.get(ip);
+    if (!h || h.reset < now) hits.set(ip, { n: 1, reset: now + 60_000 });
+    else if (++h.n > perMinute) return c.json({ error: 'Too many requests' }, 429);
+    if (hits.size > 50_000) hits.clear();
+    await next();
+  };
+}
+
+export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
+  const app = new Hono<Env>();
+  app.use('*', cors());
+  app.use('*', compress());
+  app.use('/v1/*', rateLimit(240));
+  app.onError((e, c) => {
+    console.error(e);
+    return c.json({ error: 'Something went wrong' }, 500);
+  });
+
+  /** Re-price a few games now, keeping response times bounded. */
+  async function refreshNow(ids: string[], timeoutMs: number) {
+    const job = refreshGames(db, ids).then((changes) => {
+      if (changes.length) {
+        queueAlertsForChanges(db, changes);
+        opts.onPricesChanged?.();
+      }
+    });
+    await Promise.race([job.catch(() => undefined), new Promise((r) => setTimeout(r, timeoutMs))]);
+  }
+
+  const requireDevice = async (c: Context<Env>, next: Next) => {
+    const [id, secret] = (c.req.header('authorization') ?? '').replace(/^Bearer\s+/i, '').split('.');
+    const d = id && secret ? get<DeviceRow>(db, 'SELECT * FROM devices WHERE id = ?', id) : undefined;
+    const ok = d && timingSafeEqual(Buffer.from(sha256(secret)), Buffer.from(d.secret_hash));
+    if (!ok) return c.json({ error: 'Unknown device' }, 401);
+    run(db, 'UPDATE devices SET last_seen = ? WHERE id = ?', Date.now(), d.id);
+    c.set('device', d);
+    await next();
+  };
+
+  app.get('/health', (c) => c.json({ ok: true }));
+
+  app.get('/v1/status', (c) => {
+    const rows = all<{ source: string; last_ok: number | null; last_error: string | null; last_error_at: number | null }>(db, 'SELECT * FROM source_status');
+    const sources: SourceHealth[] = rows.map((r) => ({
+      source: r.source,
+      label: SOURCE_LABELS[r.source] ?? r.source,
+      lastOk: r.last_ok ?? undefined,
+      lastError: r.last_error ?? undefined,
+      lastErrorAt: r.last_error_at ?? undefined,
+      healthy: !!r.last_ok && (!r.last_error_at || r.last_ok > r.last_error_at),
+    }));
+    const body: ApiStatus = { sources, americasEnabled: americasEnabled(), now: Date.now() };
+    return c.json(body);
+  });
+
+  app.get('/v1/fx', (c) => {
+    const fx = readFx(db);
+    if (!fx) return c.json({ error: 'Exchange rates not loaded yet' }, 503);
+    c.header('Cache-Control', 'public, max-age=600');
+    return c.json(fx);
+  });
+
+  app.get('/v1/deals', (c) => {
+    const q = z
+      .object({
+        platform: z.enum(['switch2', 'switch', 'steam']),
+        sort: z.enum(['popular', 'discount', 'cheapest', 'ending', 'newest']).default('popular'),
+        home: country,
+        currency,
+        minDiscount: z.coerce.number().min(0).max(100).optional(),
+        maxPrice: z.coerce.number().min(0).optional(),
+        abroad: z.coerce.number().min(0).max(1).optional(),
+        cursor: z.string().optional(),
+        limit: z.coerce.number().min(1).max(100).optional(),
+      })
+      .safeParse(c.req.query());
+    if (!q.success) return c.json({ error: q.error.issues[0]?.message ?? 'Bad request' }, 400);
+    c.header('Cache-Control', 'public, max-age=60');
+    return c.json(listDeals(db, { ...q.data, regions: csv(c.req.query('regions')) }, readFx(db)));
+  });
+
+  app.get('/v1/games', async (c) => {
+    const q = z
+      .object({
+        platform: z.enum(['switch2', 'switch', 'steam', 'all-switch']).default('all-switch'),
+        q: z.string().max(100).default(''),
+        home: country.default('US'),
+        cursor: z.string().optional(),
+      })
+      .safeParse(c.req.query());
+    if (!q.success) return c.json({ error: q.error.issues[0]?.message ?? 'Bad request' }, 400);
+    const { platform, home } = q.data;
+    const key = titleKey(q.data.q);
+    const { regions } = effectiveRegions(platform === 'all-switch' ? 'switch' : platform, home, csv(c.req.query('regions')));
+
+    // Steam has far too many games to mirror, so search it live and keep what we find.
+    if (platform === 'steam' && key.length >= 2 && !q.data.cursor) {
+      try {
+        const found = await searchSteam(q.data.q, 'US');
+        for (const g of found) upsertGame(db, { id: g.key, platform: 'steam', title: g.title, image: g.image, storeUrl: g.storeUrl, steamAppId: g.steamAppId });
+        const unpriced = found.map((g) => g.key).filter((id) => !(pricesFor(db, [id], regions).get(id)?.length));
+        if (unpriced.length) await refreshNow(unpriced, 5000);
+      } catch {
+        // Fall through to whatever we already have
+      }
+    }
+    const list = searchGames(db, { platform, key, regions, cursor: q.data.cursor });
+    // Quietly top up anything on this page that hasn't been checked lately
+    const stale = list.items.filter((i) => !i.prices.length || i.prices.some((p) => Date.now() - p.checkedAt > config.refreshOnViewAfterMs)).map((i) => i.game.key);
+    if (stale.length) void refreshNow(stale, 0);
+    return c.json(list);
+  });
+
+  app.get('/v1/games/:id', async (c) => {
+    const id = (c.req.param('id') ?? '');
+    const q = z.object({ home: country.default('US'), currency: currency.default('USD') }).safeParse(c.req.query());
+    if (!q.success) return c.json({ error: q.error.issues[0]?.message ?? 'Bad request' }, 400);
+    let g = getGame(db, id);
+    if (!g) return c.json({ error: 'Game not found' }, 404);
+
+    const { regions } = effectiveRegions(g.platform, q.data.home, csv(c.req.query('regions')));
+    let rows = pricesFor(db, [id], regions).get(id) ?? [];
+    const oldest = rows.length ? Math.min(...rows.map((r) => r.checked_at)) : 0;
+    if (Date.now() - oldest > config.refreshOnViewAfterMs) {
+      await refreshNow([id], 4000);
+      g = getGame(db, id)!;
+      rows = pricesFor(db, [id], regions).get(id) ?? [];
+    }
+
+    const fx = readFx(db);
+    const now = Date.now();
+    const hist = all<HistoryRow>(
+      db,
+      `SELECT country, t, currency, price FROM price_history WHERE game_id = ? AND country IN (${placeholders(regions.length)}) ORDER BY t`,
+      id,
+      ...regions,
+    );
+    const lows = (lowsFor(db, [id]).get(id) ?? []).filter((l) => regions.includes(l.country));
+    let lowest: ApiGameDetail['lowest'];
+    for (const l of lows) {
+      const v = convert(l.price, l.currency, q.data.currency, fx);
+      if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
+    }
+    const nsuids = nsuidsForGames(db, [id]).get(id) ?? {};
+    const groups = new Set(SWITCH_REGIONS.filter((r) => regions.includes(r.code)).map((r) => r.group));
+    const unmatched =
+      g.platform === 'steam'
+        ? []
+        : ([...groups].filter((grp) => !nsuids[grp] && (grp !== 'americas' || americasEnabled())) as ApiGameDetail['unmatched']);
+
+    const body: ApiGameDetail = {
+      game: rowToGame(g, nsuids),
+      prices: rows.map((r) => rowToPrice(r, now)),
+      lows,
+      history: dailyBest(hist, q.data.currency, fx, now),
+      lowest,
+      trackedSince: g.created_at,
+      unmatched,
+      stale: !rows.length || rows.some((r) => now - r.checked_at > config.staleAfterMs),
+    };
+    return c.json(body);
+  });
+
+  /* ------------------------------ devices ------------------------------ */
+
+  app.post('/v1/devices', (c) => {
+    const id = randomUUID();
+    const secret = randomBytes(24).toString('base64url');
+    const now = Date.now();
+    run(db, 'INSERT INTO devices (id, secret_hash, created_at, last_seen) VALUES (?, ?, ?, ?)', id, sha256(secret), now, now);
+    return c.json({ id, secret }, 201);
+  });
+
+  const settingsSchema = z.object({
+    pushToken: z.string().max(200).nullable().optional(),
+    os: z.string().max(20).optional(),
+    homeRegion: country,
+    currency,
+    switchRegions: z.array(country).max(60),
+    steamRegions: z.array(country).max(60),
+    tz: z.string().max(64).default('UTC'),
+    quietStart: z.number().int().min(0).max(23).nullable().optional(),
+    quietEnd: z.number().int().min(0).max(23).nullable().optional(),
+    alertsEnabled: z.boolean(),
+  });
+
+  app.put('/v1/devices/me', requireDevice, async (c) => {
+    const s = settingsSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!s.success) return c.json({ error: s.error.issues[0]?.message ?? 'Bad request' }, 400);
+    const d = c.get('device');
+    const v = s.data;
+    let tz = v.tz;
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    } catch {
+      tz = 'UTC';
+    }
+    run(
+      db,
+      `UPDATE devices SET push_token = COALESCE(?, push_token), os = ?, home_region = ?, currency = ?, switch_regions = ?, steam_regions = ?,
+         tz = ?, quiet_start = ?, quiet_end = ?, alerts_enabled = ? WHERE id = ?`,
+      v.pushToken ?? null,
+      v.os ?? null,
+      v.homeRegion,
+      v.currency,
+      JSON.stringify(v.switchRegions),
+      JSON.stringify(v.steamRegions),
+      tz,
+      v.quietStart ?? null,
+      v.quietEnd ?? null,
+      v.alertsEnabled ? 1 : 0,
+      d.id,
+    );
+    if (v.pushToken === null) run(db, 'UPDATE devices SET push_token = NULL WHERE id = ?', d.id);
+    return c.json({ ok: true });
+  });
+
+  /* ------------------------------ watches ------------------------------ */
+
+  function watchList(d: DeviceRow): ApiWatch[] {
+    const rows = all<{ game_id: string; target: number | null; alerts: string; created_at: number }>(
+      db,
+      'SELECT game_id, target, alerts, created_at FROM watches WHERE device_id = ? ORDER BY created_at DESC',
+      d.id,
+    );
+    const ids = rows.map((r) => r.game_id);
+    const games = new Map(
+      (ids.length ? all<GameRow>(db, `SELECT * FROM games WHERE id IN (${placeholders(ids.length)})`, ...ids) : []).map((g) => [g.id, g]),
+    );
+    const fx = readFx(db);
+    const lows = lowsFor(db, ids);
+    const now = Date.now();
+    const out: ApiWatch[] = [];
+    for (const r of rows) {
+      const g = games.get(r.game_id);
+      if (!g) continue;
+      const { regions } = effectiveRegions(g.platform, d.home_region, JSON.parse(g.platform === 'steam' ? d.steam_regions : d.switch_regions));
+      const prices = (pricesFor(db, [g.id], regions).get(g.id) ?? []).map((p) => rowToPrice(p, now));
+      let lowest: ApiWatch['lowest'];
+      for (const l of lows.get(g.id) ?? []) {
+        if (!regions.includes(l.country)) continue;
+        const v = convert(l.price, l.currency, d.currency, fx);
+        if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
+      }
+      out.push({ game: rowToGame(g), target: r.target ?? undefined, alerts: { ...DEFAULT_ALERTS, ...JSON.parse(r.alerts) }, createdAt: r.created_at, prices, lowest });
+    }
+    return out;
+  }
+
+  app.get('/v1/watches', requireDevice, (c) => c.json({ items: watchList(c.get('device')) }));
+
+  const alertSchema = z.object({ sale: z.boolean(), drop: z.boolean(), target: z.boolean(), low: z.boolean(), ending: z.boolean() }).partial();
+
+  app.put('/v1/watches/:gameId', requireDevice, async (c) => {
+    const d = c.get('device');
+    const gameId = (c.req.param('gameId') ?? '');
+    const g = getGame(db, gameId);
+    if (!g) return c.json({ error: 'Game not found' }, 404);
+    const body = z
+      .object({ target: z.number().min(0).max(1e9).nullable().optional(), alerts: alertSchema.optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'Bad request' }, 400);
+    const existing = get<{ target: number | null; alerts: string }>(db, 'SELECT target, alerts FROM watches WHERE device_id = ? AND game_id = ?', d.id, gameId);
+    const alerts = { ...DEFAULT_ALERTS, ...(existing ? JSON.parse(existing.alerts) : {}), ...(body.data.alerts ?? {}) };
+    const target = body.data.target === undefined ? (existing?.target ?? null) : body.data.target;
+    run(
+      db,
+      `INSERT INTO watches (device_id, game_id, target, alerts, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(device_id, game_id) DO UPDATE SET target = excluded.target, alerts = excluded.alerts`,
+      d.id,
+      gameId,
+      target,
+      JSON.stringify(alerts),
+      Date.now(),
+    );
+    // A newly watched game joins the 10-minute refresh set; make sure it starts fresh.
+    if (!existing) void refreshNow([gameId], 0);
+    return c.json({ ok: true, target: target ?? undefined, alerts });
+  });
+
+  app.delete('/v1/watches/:gameId', requireDevice, (c) => {
+    run(db, 'DELETE FROM watches WHERE device_id = ? AND game_id = ?', c.get('device').id, (c.req.param('gameId') ?? ''));
+    return c.json({ ok: true });
+  });
+
+  app.get('/v1/activity', requireDevice, (c) => {
+    const rows = all<{ id: number; game_id: string | null; kind: ApiActivity['kind']; title: string; body: string; created_at: number; image: string | null }>(
+      db,
+      `SELECT n.id, n.game_id, n.kind, n.title, n.body, n.created_at, g.image FROM notifications n
+       LEFT JOIN games g ON g.id = n.game_id
+       WHERE n.device_id = ? AND NOT (n.status = 'skipped' AND n.error = 'expired')
+       ORDER BY n.created_at DESC LIMIT 60`,
+      c.get('device').id,
+    );
+    const items: ApiActivity[] = rows.map((r) => ({
+      id: r.id,
+      gameId: r.game_id ?? undefined,
+      kind: r.kind,
+      title: r.title,
+      body: r.body,
+      createdAt: r.created_at,
+      image: r.image ?? undefined,
+    }));
+    return c.json({ items });
+  });
+
+  return app;
+}

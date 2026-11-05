@@ -8,13 +8,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gamely.market",
-      "infoPlist": {
-        "UIBackgroundModes": [
-          "processing",
-          "fetch"
-        ]
-      }
+      "bundleIdentifier": "com.gamely.market"
     },
     "android": {
       "adaptiveIcon": {
@@ -32,7 +26,6 @@
     "plugins": [
       "expo-router",
       "expo-image",
-      "expo-background-task",
       "expo-localization",
       "expo-font",
       [
@@ -40,12 +33,20 @@
         {
           "color": "#7C9CFF"
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-asset"
     ],
     "scheme": "gamely",
     "backgroundColor": "#0E1013",
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "tsconfigPaths": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
     }
   }
 }

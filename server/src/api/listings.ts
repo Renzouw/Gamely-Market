@@ -1,0 +1,109 @@
+import type { ApiList, ApiListItem, DealQuery } from '@shared/api';
+import { summarize, type PriceSummary } from '@shared/pricing';
+import { steamStoreCountry } from '@shared/regions';
+import type { FxRates, Platform } from '@shared/types';
+import { all, type Db } from '../db';
+import { nsuidsForGames, pricesFor, rowToGame, rowToPrice, type GameRow, type PriceRow } from '../store';
+
+/**
+ * Everything currently on sale for a platform, held in memory. Rebuilt only
+ * when prices change (the version bumps), so deal requests never hit the
+ * database for the heavy part.
+ */
+let version = 0;
+export const bumpVersion = () => void version++;
+
+const cache = new Map<Platform, { version: number; rows: { game: GameRow; prices: PriceRow[] }[] }>();
+
+function saleIndex(db: Db, platform: Platform) {
+  const hit = cache.get(platform);
+  if (hit && hit.version === version) return hit.rows;
+  const games = all<GameRow>(db, 'SELECT * FROM games WHERE platform = ? AND on_sale = 1', platform);
+  const prices = pricesFor(db, games.map((g) => g.id));
+  const rows = games.map((game) => ({ game, prices: prices.get(game.id) ?? [] }));
+  cache.set(platform, { version, rows });
+  return rows;
+}
+
+/** Regions that count for a caller on this platform. Steam: the store country they buy in. */
+export function effectiveRegions(platform: Platform, home: string, regions: string[]): { regions: string[]; home: string } {
+  if (platform === 'steam') {
+    const store = steamStoreCountry(home).code;
+    return { regions: [...new Set([store, ...regions])], home: store };
+  }
+  return { regions: regions.includes(home) ? regions : [...regions, home], home };
+}
+
+export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = Date.now()): ApiList {
+  const { regions, home } = effectiveRegions(q.platform, q.home, q.regions);
+  // For Steam, a "deal" means discounted in the store you can buy from.
+  const saleRegions = new Set(q.platform === 'steam' ? [home] : regions);
+  const wanted = new Set(regions);
+
+  const scored: { item: ApiListItem; s: PriceSummary; game: GameRow }[] = [];
+  for (const { game, prices } of saleIndex(db, q.platform)) {
+    const mine = prices.filter((p) => wanted.has(p.country)).map((p) => rowToPrice(p, now));
+    // Must be on sale somewhere this person can actually buy it
+    if (!mine.some((p) => p.sale && saleRegions.has(p.country))) continue;
+    const s = summarize(mine, { homeCurrency: q.currency, homeRegion: home, fx });
+    if (q.minDiscount && (s.best?.discountPercent ?? 0) < q.minDiscount) continue;
+    if (q.maxPrice !== undefined && (s.best?.converted === undefined || s.best.converted > q.maxPrice)) continue;
+    if (q.abroad && (s.savingVsHome ?? 0) < q.abroad) continue;
+    scored.push({ item: { game: rowToGame(game), prices: mine }, s, game });
+  }
+
+  const endOf = (x: (typeof scored)[number]) => Date.parse(x.s.best?.saleEndsAt ?? '') || Infinity;
+  const rankOf = (x: (typeof scored)[number]) => x.game.rank ?? Number.MAX_SAFE_INTEGER;
+  scored.sort((a, b) => {
+    switch (q.sort) {
+      case 'discount':
+        return (b.s.best?.discountPercent ?? 0) - (a.s.best?.discountPercent ?? 0) || rankOf(a) - rankOf(b);
+      case 'cheapest':
+        return (a.s.best?.converted ?? Infinity) - (b.s.best?.converted ?? Infinity) || rankOf(a) - rankOf(b);
+      case 'ending':
+        return endOf(a) - endOf(b) || rankOf(a) - rankOf(b);
+      case 'newest':
+        return (Date.parse(b.game.release_date ?? '') || 0) - (Date.parse(a.game.release_date ?? '') || 0);
+      default:
+        return rankOf(a) - rankOf(b);
+    }
+  });
+
+  const limit = Math.min(q.limit ?? 30, 100);
+  const offset = Number(q.cursor ?? 0) || 0;
+  const page = scored.slice(offset, offset + limit);
+  const nsuids = nsuidsForGames(db, page.map((p) => p.game.id));
+  const items = page.map((p) => ({ ...p.item, game: { ...p.item.game, nsuids: nsuids.get(p.game.id) } }));
+  return {
+    items,
+    total: scored.length,
+    nextCursor: offset + limit < scored.length ? String(offset + limit) : undefined,
+    checkedAt: Math.max(0, ...items.flatMap((i) => i.prices.map((p) => p.checkedAt))) || undefined,
+  };
+}
+
+export type DirectoryPlatform = Platform | 'all-switch';
+
+export function searchGames(db: Db, p: { platform: DirectoryPlatform; key: string; regions: string[]; cursor?: string; limit?: number }, now = Date.now()): ApiList {
+  const platforms = p.platform === 'all-switch' ? ['switch', 'switch2'] : [p.platform];
+  const limit = Math.min(p.limit ?? 30, 100);
+  const offset = Number(p.cursor ?? 0) || 0;
+  const where = `platform IN (${platforms.map(() => '?').join(', ')})` + (p.key ? ' AND title_key LIKE ?' : '');
+  const params: string[] = [...platforms];
+  if (p.key) params.push(`%${p.key}%`);
+  const total = all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM games WHERE ${where}`, ...params)[0]?.n ?? 0;
+  const order = p.key
+    ? 'CASE WHEN title_key = ? THEN 0 WHEN title_key LIKE ? THEN 1 ELSE 2 END, COALESCE(rank, 1e9), title'
+    : 'COALESCE(rank, 1e9), title';
+  const orderParams = p.key ? [p.key, `${p.key}%`] : [];
+  const games = all<GameRow>(db, `SELECT * FROM games WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, ...orderParams, limit, offset);
+  const prices = pricesFor(db, games.map((g) => g.id), p.regions);
+  const nsuids = nsuidsForGames(db, games.map((g) => g.id));
+  const items = games.map((g) => ({ game: rowToGame(g, nsuids.get(g.id)), prices: (prices.get(g.id) ?? []).map((r) => rowToPrice(r, now)) }));
+  return {
+    items,
+    total,
+    nextCursor: offset + limit < total ? String(offset + limit) : undefined,
+    checkedAt: Math.max(0, ...items.flatMap((i) => i.prices.map((x) => x.checkedAt))) || undefined,
+  };
+}

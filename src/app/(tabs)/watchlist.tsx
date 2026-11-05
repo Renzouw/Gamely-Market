@@ -1,157 +1,188 @@
-import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Sparkline } from '../../components/Sparkline';
-import { Chip, ChipRow, EmptyState, Pill, PlatformTag } from '../../components/ui';
-import { formatMoney } from '../../domain/pricing';
-import { regionLabel } from '../../domain/regions';
-import { useFx } from '../../hooks/queries';
-import { refreshWatchlist } from '../../services/alerts';
-import { useSettings } from '../../state/settings';
-import { useWatchlist, type WatchItem } from '../../state/watchlist';
-import { radius, space, useTheme } from '../../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { FlashList } from '@shopify/flash-list';
+import { router, useLocalSearchParams } from 'expo-router';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { RefreshControl, StyleSheet, View } from 'react-native';
+import type { ApiActivity, ApiWatch } from '@shared/api';
+import { formatMoney } from '@shared/pricing';
+import { regionLabel } from '@shared/regions';
+import { errorText } from '../../api/client';
+import { ScreenHeader } from '../../components/ScreenHeader';
+import { Cover, EmptyState, PlatformTabs, RowSkeleton, Tap } from '../../components/ui';
+import { useActivity, usePriceSummary, useWatches } from '../../hooks/queries';
+import { ago } from '../../lib/format';
+import { GUTTER, space, useTheme } from '../../theme';
+import { Text } from '../../theme/Text';
 
-type Sort = 'target' | 'drop' | 'recent' | 'cheapest';
-const AUTO_REFRESH_MS = 30 * 60 * 1000;
+type Tab = 'watching' | 'alerts';
 
-/** How far the price fell from the first time we saw it, as a fraction */
-function dropSinceAdded(item: WatchItem): number {
-  const first = item.history[0]?.best;
-  if (!first || item.lastBest === undefined) return 0;
-  return Math.max(0, 1 - item.lastBest / first);
-}
+const WatchRow = memo(function WatchRow({ w }: { w: ApiWatch }) {
+  const s = usePriceSummary(w.game.platform, w.prices);
+  const best = w.game.platform === 'steam' ? (s.home ?? s.best) : s.best;
+  const atTarget = w.target !== undefined && best?.converted !== undefined && best.converted <= w.target + 0.005;
+  const atLow = best?.converted !== undefined && w.lowest && best.converted <= w.lowest.price + 0.01 && !!best.sale;
+
+  let status: { text: string; tone: 'signal' | 'muted' | 'subtle' };
+  if (atTarget) status = { text: 'At your price', tone: 'signal' };
+  else if (atLow) status = { text: 'Lowest price yet', tone: 'signal' };
+  else if (best?.sale) status = { text: `On sale in ${regionLabel(best.country).name}`, tone: 'muted' };
+  else if (w.target !== undefined && best?.converted !== undefined) status = { text: `${formatMoney(best.converted - w.target, s.currency)} above your price`, tone: 'subtle' };
+  else status = { text: 'Waiting for a sale', tone: 'subtle' };
+
+  return (
+    <Tap
+      onPress={() => router.push({ pathname: '/game/[key]', params: { key: w.game.key } })}
+      accessibilityRole="button"
+      accessibilityLabel={`${w.game.title}, ${best?.converted !== undefined ? formatMoney(best.converted, s.currency) : 'no price'}, ${status.text}`}
+      scaleTo={0.985}
+      style={styles.row}
+    >
+      <Cover uri={w.game.image} title={w.game.title} platform={w.game.platform} width={106} height={60} />
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text variant="bodyMedium" numberOfLines={2}>
+          {w.game.title}
+        </Text>
+        <Text variant="footnote" tone={status.tone} numberOfLines={1}>
+          {status.text}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 2, minWidth: 72 }}>
+        <Text variant="priceM" tone={atTarget ? 'signal' : 'text'}>
+          {best?.converted !== undefined ? formatMoney(best.converted, s.currency) : '–'}
+        </Text>
+        {best?.discountPercent ? (
+          <Text variant="priceXS" tone="signal">
+            −{best.discountPercent}%
+          </Text>
+        ) : w.target !== undefined ? (
+          <Text variant="priceXS" tone="subtle">
+            ≤ {formatMoney(w.target, s.currency)}
+          </Text>
+        ) : null}
+      </View>
+    </Tap>
+  );
+});
+
+const KIND_ICON: Record<ApiActivity['kind'], keyof typeof Ionicons.glyphMap> = {
+  sale: 'pricetag',
+  drop: 'trending-down',
+  target: 'locate',
+  low: 'ribbon',
+  ending: 'time',
+  digest: 'albums',
+};
+
+const AlertRow = memo(function AlertRow({ a }: { a: ApiActivity }) {
+  const { c } = useTheme();
+  return (
+    <Tap
+      disabled={!a.gameId}
+      onPress={() => a.gameId && router.push({ pathname: '/game/[key]', params: { key: a.gameId } })}
+      accessibilityRole="button"
+      accessibilityLabel={`${a.title}. ${a.body}. ${ago(a.createdAt)}`}
+      scaleTo={0.985}
+      style={styles.alert}
+    >
+      <View style={[styles.alertIcon, { backgroundColor: a.kind === 'ending' ? c.warnWash : c.signalWash }]}>
+        <Ionicons name={KIND_ICON[a.kind]} size={16} color={a.kind === 'ending' ? c.warn : c.signalText} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <Text variant="bodyMedium" style={{ flex: 1 }} numberOfLines={2}>
+            {a.title}
+          </Text>
+          <Text variant="caption" tone="subtle">
+            {ago(a.createdAt)}
+          </Text>
+        </View>
+        <Text variant="footnote" tone="muted">
+          {a.body}
+        </Text>
+      </View>
+    </Tap>
+  );
+});
 
 export default function WatchlistScreen() {
   const { c } = useTheme();
-  const insets = useSafeAreaInsets();
-  const items = useWatchlist((s) => s.items);
-  const currency = useSettings((s) => s.homeCurrency);
-  const fx = useFx().data;
-  const [sort, setSort] = useState<Sort>('target');
-  const [refreshing, setRefreshing] = useState(false);
-  const [status, setStatus] = useState<string>();
-  const lastRun = useRef(0);
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<Tab>('watching');
+  useEffect(() => {
+    if (params.tab === 'alerts') setTab('alerts');
+  }, [params.tab]);
+  const watches = useWatches();
+  const activity = useActivity();
 
-  const refresh = useCallback(async () => {
-    if (!Object.keys(useWatchlist.getState().items).length) return;
-    setRefreshing(true);
-    lastRun.current = Date.now();
-    try {
-      const r = await refreshWatchlist({ fx });
-      setStatus(
-        r.failed ? `Updated ${r.checked - r.failed} of ${r.checked}. Some stores didn't respond.` : `Updated just now`,
-      );
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fx]);
+  const sorted = useMemo(() => [...(watches.data ?? [])], [watches.data]);
+  const renderWatch = useCallback(({ item }: { item: ApiWatch }) => <WatchRow w={item} />, []);
+  const renderAlert = useCallback(({ item }: { item: ApiActivity }) => <AlertRow a={item} />, []);
+  const onSale = sorted.filter((w) => w.prices.some((p) => p.sale)).length;
 
-  useFocusEffect(
-    useCallback(() => {
-      if (Date.now() - lastRun.current > AUTO_REFRESH_MS) refresh();
-    }, [refresh]),
+  const header = (
+    <View>
+      <ScreenHeader
+        title="Watchlist"
+        subtitle={sorted.length ? `${sorted.length} ${sorted.length === 1 ? 'game' : 'games'}${onSale ? ` · ${onSale} on sale now` : ''}` : undefined}
+      />
+      <PlatformTabs<Tab>
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'watching', label: 'Watching' },
+          { value: 'alerts', label: 'Alerts' },
+        ]}
+      />
+    </View>
   );
 
-  const list = useMemo(() => {
-    const all = Object.values(items);
-    const atTarget = (i: WatchItem) => i.target !== undefined && i.lastBest !== undefined && i.lastBest <= i.target;
-    switch (sort) {
-      case 'target':
-        return all.sort((a, b) => Number(atTarget(b)) - Number(atTarget(a)) || dropSinceAdded(b) - dropSinceAdded(a));
-      case 'drop':
-        return all.sort((a, b) => dropSinceAdded(b) - dropSinceAdded(a));
-      case 'cheapest':
-        return all.sort((a, b) => (a.lastBest ?? Infinity) - (b.lastBest ?? Infinity));
-      default:
-        return all.sort((a, b) => b.addedAt - a.addedAt);
-    }
-  }, [items, sort]);
-
-  const hitCount = list.filter((i) => i.target !== undefined && i.lastBest !== undefined && i.lastBest <= i.target).length;
-
   return (
-    <FlatList
-      style={{ backgroundColor: c.bg }}
-      data={list}
-      keyExtractor={(i) => i.game.key}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.textDim} />}
-      ListHeaderComponent={
-        <View style={{ paddingTop: insets.top + space.md }}>
-          <Text style={[styles.h1, { color: c.text }]}>Watchlist</Text>
-          <Text style={[styles.subtitle, { color: c.textDim }]}>
-            {list.length ? `${list.length} ${list.length === 1 ? 'game' : 'games'} · ${hitCount} at your price` : 'Your saved games'}
-            {status ? ` · ${status}` : ''}
-          </Text>
-          {list.length > 1 ? (
-            <ChipRow>
-              <Chip label="At target first" active={sort === 'target'} onPress={() => setSort('target')} />
-              <Chip label="Biggest drop" active={sort === 'drop'} onPress={() => setSort('drop')} />
-              <Chip label="Cheapest" active={sort === 'cheapest'} onPress={() => setSort('cheapest')} />
-              <Chip label="Recently added" active={sort === 'recent'} onPress={() => setSort('recent')} />
-            </ChipRow>
-          ) : null}
-        </View>
-      }
-      ListEmptyComponent={
-        <EmptyState
-          icon="heart-outline"
-          title="Nothing watched yet"
-          body="Open any game and tap Watch price. You'll see its best price across your regions here, and can set a price to be alerted at."
-          action={{ label: 'Browse deals', onPress: () => router.push('/') }}
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+      {tab === 'watching' ? (
+        <FlashList
+          key="watching"
+          data={sorted}
+          keyExtractor={(w) => w.game.key}
+          renderItem={renderWatch}
+          ListHeaderComponent={header}
+          refreshControl={<RefreshControl refreshing={watches.isRefetching} onRefresh={() => void watches.refetch()} tintColor={c.subtle} />}
+          ListEmptyComponent={
+            watches.isPending ? (
+              <RowSkeleton rows={4} />
+            ) : watches.isError ? (
+              <EmptyState title="Couldn't load your watchlist" body={errorText(watches.error)} action={{ label: 'Try again', onPress: () => watches.refetch() }} />
+            ) : (
+              <EmptyState
+                title="Nothing watched yet"
+                body="Open any game and tap Watch price. We'll check it every few minutes and tell you when it's worth buying."
+                action={{ label: 'Browse deals', onPress: () => router.push('/') }}
+              />
+            )
+          }
         />
-      }
-      renderItem={({ item }) => {
-        const r = item.lastCountry ? regionLabel(item.lastCountry) : undefined;
-        const hit = item.target !== undefined && item.lastBest !== undefined && item.lastBest <= item.target;
-        const drop = dropSinceAdded(item);
-        return (
-          <Pressable
-            onPress={() => router.push({ pathname: '/game/[key]', params: { key: item.game.key } })}
-            style={({ pressed }) => [styles.card, { backgroundColor: pressed ? c.surface2 : c.surface, borderColor: hit ? c.good : c.border }]}
-          >
-            <View style={styles.row}>
-              <Image source={item.game.image} style={[styles.thumb, { backgroundColor: c.surface2 }]} contentFit="cover" />
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text numberOfLines={2} style={[styles.title, { color: c.text }]}>
-                  {item.game.title}
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                  <PlatformTag platform={item.game.platform} />
-                  {hit ? <Pill text="At your price" tone="good" icon="checkmark" /> : null}
-                  {drop >= 0.01 ? <Pill text={`↓ ${Math.round(drop * 100)}% since added`} tone="good" /> : null}
-                </View>
-              </View>
-            </View>
-            <View style={styles.priceRow}>
-              <View>
-                <Text style={[styles.price, { color: hit ? c.good : c.text }]}>
-                  {item.lastBest !== undefined ? formatMoney(item.lastBest, currency) : '–'}
-                </Text>
-                <Text style={{ color: c.textDim, fontSize: 12 }}>{r ? `${r.flag} ${r.name}` : 'Not checked yet'}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ color: c.textDim, fontSize: 12 }}>Target</Text>
-                <Text style={{ color: c.text, fontWeight: '700' }}>{item.target !== undefined ? formatMoney(item.target, currency) : 'Any drop'}</Text>
-              </View>
-            </View>
-            {item.history.length >= 2 ? <Sparkline points={item.history} color={hit ? c.good : c.accent} height={36} /> : null}
-          </Pressable>
-        );
-      }}
-      contentContainerStyle={{ paddingBottom: space.xl }}
-    />
+      ) : (
+        <FlashList
+          key="alerts"
+          data={activity.data ?? []}
+          keyExtractor={(a) => String(a.id)}
+          renderItem={renderAlert}
+          ListHeaderComponent={header}
+          refreshControl={<RefreshControl refreshing={activity.isRefetching} onRefresh={() => void activity.refetch()} tintColor={c.subtle} />}
+          ListEmptyComponent={
+            activity.isPending ? (
+              <RowSkeleton rows={4} />
+            ) : (
+              <EmptyState title="No alerts yet" body="When a game you watch goes on sale, hits a new low or a sale is about to end, it shows up here too." />
+            )
+          }
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { fontSize: 32, fontWeight: '800', letterSpacing: -0.5, paddingHorizontal: space.lg },
-  subtitle: { fontSize: 13.5, marginTop: 2, paddingHorizontal: space.lg, marginBottom: space.sm },
-  card: { marginHorizontal: space.lg, marginTop: space.md, padding: space.md, borderRadius: radius.lg, borderWidth: 1, gap: space.sm },
-  row: { flexDirection: 'row', gap: space.md },
-  thumb: { width: 96, height: 54, borderRadius: radius.sm },
-  title: { fontSize: 15, fontWeight: '700' },
-  priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  price: { fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: GUTTER, paddingVertical: space.md },
+  alert: { flexDirection: 'row', gap: space.md, paddingHorizontal: GUTTER, paddingVertical: space.md },
+  alertIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
 });

@@ -42,11 +42,10 @@ Docs: https://docs.expo.dev/eas/index.md
 
 ## This project
 
-Gamely compares game prices across Nintendo eShop regions and Steam. Code layout:
+Gamely compares game prices across Nintendo eShop regions and Steam. Two parts:
 
-- `src/app/` screens (Expo Router)
-- `src/api/` store adapters: `nintendo/` (catalogs + price endpoint), `steam.ts`, `fx.ts`
-- `src/domain/` pure logic (regions, price conversion and ranking, title matching). Keep it free of React so it stays easy to test.
-- `src/state/` persisted Zustand stores (settings, watchlist)
-- `src/services/` price alerts and the background task
-- `src/__tests__/` Jest tests. Run `npm test` and `npm run typecheck` before you finish.
+- App (repo root): `src/app/` screens (Expo Router), `src/components/`, `src/hooks/queries.ts` (all data comes from our API via `src/api/client.ts`), `src/theme/` (tokens and the `Text` type scale, see DESIGN.md).
+- Server (`server/`): store adapters in `src/sources/`, ingestion and matching in `src/ingest/`, alert planning in `src/alerts/`, push in `src/push/`, HTTP API in `src/api/`, schedule in `src/jobs.ts`.
+- `shared/` holds types, regions, price maths and the API contract. Keep it free of React and Node APIs.
+
+Before you finish: `npm test && npm run typecheck` at the root, and `npm test && npm run typecheck` in `server/`.

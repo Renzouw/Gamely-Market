@@ -1,129 +1,123 @@
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { memo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { endsSoon, formatMoney, timeLeft } from '../domain/pricing';
-import { regionLabel } from '../domain/regions';
-import type { Game, RegionPrice } from '../domain/types';
-import { usePriceSummary } from '../hooks/usePriceSummary';
-import { radius, space, useTheme } from '../theme';
-import { DiscountBadge, Pill, PlatformTag } from './ui';
+import { memo, useCallback } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import type { ApiGame, ApiPrice } from '@shared/api';
+import { endsSoon, formatMoney, timeLeft } from '@shared/pricing';
+import { regionLabel } from '@shared/regions';
+import { usePriceSummary } from '../hooks/queries';
+import { GUTTER, space, useTheme } from '../theme';
+import { Text } from '../theme/Text';
+import { Cover, PlatformLabel, Tap } from './ui';
+
+export const ROW_HEIGHT = 84;
+export const ROW_HEIGHT_TICKER = 110;
+const COVER_W = 106;
+const COVER_H = 60;
 
 interface Props {
-  game: Game;
-  prices: RegionPrice[];
-  /** Show a strip of the cheapest regions under the row (directory view) */
-  showRegions?: boolean;
+  game: ApiGame;
+  prices: ApiPrice[];
+  /** A one-line ticker of the cheapest regions (directory) */
+  ticker?: boolean;
   showPlatform?: boolean;
 }
 
-function GameRowInner({ game, prices, showRegions, showPlatform }: Props) {
+function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
   const { c } = useTheme();
-  const s = usePriceSummary(game, prices);
+  const s = usePriceSummary(game.platform, prices);
   const best = s.best;
-  const bestRegion = best ? regionLabel(best.country) : undefined;
-  const isHomeBest = best && s.home && best.country === s.home.country;
-  const ends = best?.saleEndsAt ?? s.home?.saleEndsAt;
-  const left = timeLeft(ends);
-  const maxDiscount = Math.max(0, ...prices.map((p) => p.discountPercent));
-  const foreign = best && best.current.currency !== s.homeCurrency;
-  const pricingKnown = prices.length > 0;
+  const isSteam = game.platform === 'steam';
+  const homeIsBest = best && s.home && best.country === s.home.country;
+  const region = best ? regionLabel(best.country) : undefined;
+  const left = endsSoon(best?.saleEndsAt) ? timeLeft(best?.saleEndsAt) : undefined;
+  const saving = s.savingVsHome && s.savingVsHome >= 0.05 ? Math.round(s.savingVsHome * 100) : 0;
+
+  const open = useCallback(() => router.push({ pathname: '/game/[key]', params: { key: game.key } }), [game.key]);
+
+  let context: { text: string; tone: 'warn' | 'signal' | 'subtle' } | undefined;
+  if (left) context = { text: `Ends in ${left}`, tone: 'warn' };
+  else if (!isSteam && best && !homeIsBest && saving) context = { text: `${region?.flag} ${saving}% cheaper`, tone: 'signal' };
+  else if (!isSteam && best && region) context = { text: homeIsBest ? 'Cheapest at home' : `${region.flag} ${region.name}`, tone: 'subtle' };
+  else if (game.publisher) context = { text: game.publisher, tone: 'subtle' };
+
+  const label = [
+    game.title,
+    best?.converted !== undefined ? `${formatMoney(best.converted, s.currency)}${region && !isSteam ? ` in ${region.name}` : ''}` : 'No price in your regions',
+    best?.discountPercent ? `${best.discountPercent}% off` : undefined,
+    left ? `ends in ${left}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${game.title}${best?.converted !== undefined ? `, best price ${formatMoney(best.converted, s.homeCurrency)}` : ''}`}
-      onPress={() => router.push({ pathname: '/game/[key]', params: { key: game.key } })}
-      style={({ pressed }) => [styles.row, { backgroundColor: pressed ? c.surface2 : 'transparent' }]}
-    >
-      <View style={styles.top}>
-        <Image source={game.image} style={[styles.thumb, { backgroundColor: c.surface2 }]} contentFit="cover" transition={150} recyclingKey={game.key} />
-        <View style={styles.body}>
-          <Text numberOfLines={2} style={[styles.title, { color: c.text }]}>
+    <Tap onPress={open} accessibilityRole="button" accessibilityLabel={label} scaleTo={0.985} style={styles.row}>
+      <View style={styles.main}>
+        <Cover uri={game.image} title={game.title} platform={game.platform} width={COVER_W} height={COVER_H} />
+        <View style={styles.text}>
+          <Text variant="bodyMedium" numberOfLines={2}>
             {game.title}
           </Text>
           <View style={styles.meta}>
-            {maxDiscount > 0 ? <DiscountBadge percent={best?.discountPercent || maxDiscount} /> : null}
-            {showPlatform ? <PlatformTag platform={game.platform} /> : null}
-            {left ? <Pill text={left} icon="time-outline" tone={endsSoon(ends) ? 'warn' : 'neutral'} /> : null}
-          </View>
-
-          {best && best.converted !== undefined ? (
-            <View style={styles.priceLine}>
-              <Text style={[styles.price, { color: c.text }]}>
-                {foreign ? '≈' : ''}
-                {formatMoney(best.converted, s.homeCurrency)}
+            {showPlatform ? <PlatformLabel platform={game.platform} /> : null}
+            {context ? (
+              <Text variant="footnote" tone={context.tone} numberOfLines={1} style={{ flexShrink: 1 }}>
+                {context.text}
               </Text>
-              {best.convertedRegular !== undefined && best.sale ? (
-                <Text style={[styles.strike, { color: c.textFaint }]}>{formatMoney(best.convertedRegular, s.homeCurrency)}</Text>
-              ) : null}
-            </View>
-          ) : pricingKnown ? (
-            <Text style={[styles.sub, { color: c.textDim }]}>Loading exchange rates…</Text>
+            ) : null}
+          </View>
+        </View>
+        <View style={styles.price}>
+          {best?.converted !== undefined ? (
+            <>
+              <Text variant="priceM">{formatMoney(best.converted, s.currency)}</Text>
+              <View style={styles.priceMeta}>
+                {best.discountPercent ? (
+                  <Text variant="priceXS" tone="signal">
+                    −{best.discountPercent}%
+                  </Text>
+                ) : null}
+                {!isSteam && region && left ? <Text variant="priceXS">{region.flag}</Text> : null}
+              </View>
+            </>
           ) : (
-            <Text style={[styles.sub, { color: c.textFaint }]}>No price in your regions</Text>
-          )}
-
-          {best && bestRegion && game.platform !== 'steam' ? (
-            <Text numberOfLines={1} style={[styles.sub, { color: c.textDim }]}>
-              {isHomeBest ? (
-                'Cheapest in your eShop'
-              ) : (
-                <>
-                  {bestRegion.flag} {bestRegion.name}
-                  {s.savingVsHome && s.savingVsHome >= 0.01 ? (
-                    <Text style={{ color: c.good, fontWeight: '700' }}> · {Math.round(s.savingVsHome * 100)}% less than home</Text>
-                  ) : null}
-                </>
-              )}
+            <Text variant="footnote" tone="subtle">
+              {prices.length ? '…' : 'Not sold'}
             </Text>
-          ) : null}
+          )}
         </View>
       </View>
 
-      {showRegions && s.ranked.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-          {s.ranked.slice(0, 8).map((p, i) => {
-            const r = regionLabel(p.country);
-            const home = p.country === s.home?.country;
-            return (
-              <View
-                key={p.country}
-                style={[
-                  styles.regionChip,
-                  { backgroundColor: i === 0 ? c.goodBg : c.surface2, borderColor: home ? c.accent : 'transparent' },
-                ]}
-              >
-                <Text style={[styles.regionText, { color: i === 0 ? c.good : c.text }]}>
-                  {r.flag} {formatMoney(p.current.amount, p.current.currency)}
+      {ticker && s.ranked.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ticker} accessible={false}>
+          {s.ranked.slice(0, 10).map((p, i) =>
+            p.converted === undefined ? null : (
+              <View key={p.country} style={styles.tick}>
+                <Text variant="priceXS" tone={i === 0 ? 'signal' : 'subtle'}>
+                  {p.country}
                 </Text>
-                {p.current.currency !== s.homeCurrency && p.converted !== undefined ? (
-                  <Text style={[styles.regionConv, { color: c.textDim }]}>≈{formatMoney(p.converted, s.homeCurrency)}</Text>
-                ) : null}
+                <Text variant="priceXS" tone={i === 0 ? 'signal' : p.country === s.home?.country ? 'text' : 'muted'}>
+                  {formatMoney(p.converted, s.currency)}
+                </Text>
               </View>
-            );
-          })}
+            ),
+          )}
         </ScrollView>
       ) : null}
-    </Pressable>
+      {ticker ? <View style={[styles.rule, { backgroundColor: c.line }]} /> : null}
+    </Tap>
   );
 }
 
-export const GameRow = memo(GameRowInner);
+export const GameRow = memo(GameRowInner, (a, b) => a.game === b.game && a.prices === b.prices && a.ticker === b.ticker && a.showPlatform === b.showPlatform);
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: space.lg, paddingVertical: space.md },
-  top: { flexDirection: 'row', gap: space.md },
-  thumb: { width: 128, height: 72, borderRadius: radius.md },
-  body: { flex: 1, gap: 4 },
-  title: { fontSize: 15, fontWeight: '700', lineHeight: 19 },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  priceLine: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 2 },
-  price: { fontSize: 18, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  strike: { fontSize: 13, textDecorationLine: 'line-through', fontVariant: ['tabular-nums'] },
-  sub: { fontSize: 12.5 },
-  strip: { gap: 6, paddingTop: space.sm },
-  regionChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1 },
-  regionText: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  regionConv: { fontSize: 10.5, fontVariant: ['tabular-nums'] },
+  row: { paddingHorizontal: GUTTER, paddingVertical: space.md },
+  main: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  text: { flex: 1, gap: 3 },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  price: { alignItems: 'flex-end', minWidth: 72, gap: 2 },
+  priceMeta: { flexDirection: 'row', gap: 6 },
+  ticker: { gap: space.lg, paddingTop: space.sm, paddingLeft: COVER_W + space.md },
+  tick: { flexDirection: 'row', gap: 5 },
+  rule: { height: StyleSheet.hairlineWidth, position: 'absolute', bottom: 0, left: GUTTER + COVER_W + space.md, right: 0 },
 });
