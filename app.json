@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Gamely",
+    "slug": "gamely",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gamely.market",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "processing",
+          "fetch"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1013",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.gamely.market"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-image",
+      "expo-background-task",
+      "expo-localization",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "color": "#7C9CFF"
+        }
+      ]
+    ],
+    "scheme": "gamely",
+    "backgroundColor": "#0E1013",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
