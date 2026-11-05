@@ -1,7 +1,8 @@
 import { FlashList } from '@shopify/flash-list';
-import { router } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import type { ApiListItem, DealSort } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
@@ -9,10 +10,12 @@ import type { Platform } from '@shared/types';
 import { errorText } from '../../api/client';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
-import { useDeals, usePrefs, type DealFilters } from '../../hooks/queries';
+import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
+import { useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
+import { enableAlerts } from '../../services/push';
+import { useSettings } from '../../state/settings';
 import { ago } from '../../lib/format';
-import { GUTTER, platformMeta, space, useTheme } from '../../theme';
+import { GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
 const SORTS: { value: DealSort; label: string; detail: string }[] = [
@@ -34,7 +37,16 @@ const PLATFORMS = (['switch2', 'switch', 'steam'] as Platform[]).map((p) => ({ v
 export default function DealsScreen() {
   const { c } = useTheme();
   const prefs = usePrefs();
+  const params = useLocalSearchParams<{ platform?: string }>();
   const [platform, setPlatform] = useState<Platform>('switch2');
+  useEffect(() => {
+    if (params.platform === 'switch2' || params.platform === 'switch' || params.platform === 'steam') setPlatform(params.platform);
+  }, [params.platform]);
+  const events = useSaleEvents().data ?? [];
+  const liveEvent = events.find((e) => (platform === 'steam' ? e.platform === 'steam' : e.platform !== 'steam'));
+  const alertsEnabled = useSettings((x) => x.alertsEnabled);
+  const alertsPrompted = useSettings((x) => x.alertsPrompted);
+  const showPrompt = !alertsEnabled && !alertsPrompted && RNPlatform.OS !== 'web';
   const [sort, setSort] = useState<DealSort>('popular');
   const [sortOpen, setSortOpen] = useState(false);
   const [big, setBig] = useState(false);
@@ -75,6 +87,31 @@ export default function DealsScreen() {
         }
       />
       <PlatformTabs value={platform} options={PLATFORMS} onChange={setPlatform} />
+      {liveEvent ? (
+        <View style={[styles.event, { backgroundColor: c.signalWash }]} accessible accessibilityLabel={`Big sale on now. ${liveEvent.count} games discounted.`}>
+          <Ionicons name="megaphone" size={16} color={c.signalText} />
+          <Text variant="footnoteMedium" tone="signal" style={{ flex: 1 }}>
+            Big {liveEvent.platform === 'steam' ? 'Steam' : 'eShop'} sale on now · {liveEvent.count.toLocaleString()} games discounted
+            {liveEvent.baseline > 0 && liveEvent.count / liveEvent.baseline >= 2 ? `, ${Math.round(liveEvent.count / liveEvent.baseline)}× a normal day` : ''}
+          </Text>
+        </View>
+      ) : null}
+      {showPrompt ? (
+        <View style={[styles.prompt, { backgroundColor: c.surface }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="headline">Hear about big sales first</Text>
+              <Text variant="footnote" tone="muted">
+                A heads-up when Steam or the eShop starts a major sale, plus the best deals on popular games. Nothing overnight.
+              </Text>
+            </View>
+            <Pressable onPress={() => useSettings.getState().set({ alertsPrompted: true })} hitSlop={12} accessibilityLabel="Dismiss">
+              <Ionicons name="close" size={18} color={c.subtle} />
+            </Pressable>
+          </View>
+          <Button label="Turn on alerts" onPress={() => void enableAlerts()} style={{ marginTop: space.md, height: 44 }} />
+        </View>
+      ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
         <Chip label={sortLabel} trailing="chevron-down" onPress={() => setSortOpen(true)} />
         <View style={[styles.divider, { backgroundColor: c.line }]} />
@@ -84,7 +121,9 @@ export default function DealsScreen() {
       </ScrollView>
       {q.total !== undefined && q.items.length ? (
         <Text variant="caption" tone="subtle" style={styles.count}>
-          {q.total.toLocaleString()} {q.total === 1 ? 'game' : 'games'} on sale
+          {isSteam
+            ? `The ${q.total.toLocaleString()} most popular Steam games on sale`
+            : `${q.total.toLocaleString()} ${q.total === 1 ? 'game' : 'games'} on sale`}
         </Text>
       ) : null}
     </View>
@@ -130,4 +169,6 @@ const styles = StyleSheet.create({
   filters: { gap: space.sm, paddingHorizontal: GUTTER, paddingTop: space.md, paddingBottom: space.xs, alignItems: 'center' },
   divider: { width: StyleSheet.hairlineWidth, height: 20, marginHorizontal: space.xs },
   count: { paddingHorizontal: GUTTER, paddingTop: space.md },
+  event: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginTop: space.md, paddingHorizontal: space.md, paddingVertical: space.sm + 2, borderRadius: radius.md },
+  prompt: { marginHorizontal: GUTTER, marginTop: space.md, padding: space.lg, borderRadius: radius.lg },
 });

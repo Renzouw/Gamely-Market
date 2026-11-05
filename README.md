@@ -38,12 +38,23 @@ There are two parts:
 | Every game in every region | Once a day |
 | Exchange rates | Every 6 hours (the ECB publishes once a day) |
 | "Sale ends soon" reminders | Hourly |
+| Store-wide sale detection | After every discovery pass, about every 20 minutes |
+| Big-deal digests | Every 3 hours, at most one per person every 12 hours |
 
 Opening a game whose prices are more than 3 hours old triggers a fresh check on the spot. All intervals can be changed with env vars (see `server/.env.example`).
 
 ## Alerts
 
 The server compares every refresh with the previous prices and decides, per person, whether something worth telling them happened. It only looks at that person's regions and currency, and for Steam only at the store their account buys in. Each change produces at most one alert (target price beats lowest price, which beats "on sale", which beats "dropped"), the same alert is never sent twice, and four or more alerts at once are rolled into one summary. Alerts that fall in quiet hours wait until they end, and alerts about a sale that has already finished are dropped. Pushes go through Expo's push service, which handles both Apple and Google, and dead tokens are cleaned up from delivery receipts.
+
+## Sale events and big deals
+
+Separate from the watchlist, the server tells people when something big is happening:
+
+- **Store-wide sales.** Every discovery pass records how many games each store says are discounted (Steam's own specials count, and Nintendo Europe's count for Switch and Switch 2). When that number jumps to at least 1.6× a normal day, with a real jump in games too (1,500 on Steam, 300 on Switch, 40 on Switch 2), a sale event starts and everyone who opted in gets one push, for example "A big Steam sale is on: 38,400 games discounted, about 4× a normal day. Top picks: ...". A normal day is the median from 2 to 8 days earlier. Nothing fires until a week of history exists, so a new server can't raise a false alarm. Each event alerts once, and it closes when the count falls back near normal. A live event also shows as a banner on the Deals screen.
+- **Big deals on popular games.** Every 3 hours the server looks for popular games (by store ranking) that went to 50% off or more in the last day, in that person's regions and currency. It sends them as one digest, at most every 12 hours, never repeats a game for the same sale, and leaves out games already on the person's watchlist.
+
+Both can be switched off, limited to certain platforms, and the big-deal threshold can be set from 40% to 80%, all in Settings › Sales and events. Quiet hours apply to these too.
 
 ## Running it
 
@@ -53,7 +64,7 @@ The server compares every refresh with the previous prices and decides, per pers
 cd server
 npm install
 npm run dev          # API on :8787, jobs start immediately
-npm test             # 39 tests, including a full price-change-to-push run
+npm test             # 52 tests, including a full price-change-to-push run
 ```
 
 It stores everything in one SQLite file (Node's built-in SQLite, no database server needed). To deploy, build `server/Dockerfile` from the repo root and mount a volume at `/data`. Any host that runs a container with a disk works: Fly.io, Railway, Render, a small VPS.

@@ -9,7 +9,18 @@ export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Columns added after the first release. CREATE TABLE IF NOT EXISTS won't add them to an old database. */
+const COLUMNS: [table: string, column: string, ddl: string][] = [['devices', 'event_alerts', "TEXT NOT NULL DEFAULT '{}'"]];
+
+function migrate(db: DatabaseSync) {
+  for (const [table, column, ddl] of COLUMNS) {
+    const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
 }
 
 /** Run fn inside a transaction. node:sqlite has no helper for this. */

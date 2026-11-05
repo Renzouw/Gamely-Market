@@ -25,7 +25,7 @@ export function buildMessages(due: Due[]): { message: PushMessage; ids: number[]
   for (const list of byDevice.values()) {
     const to = list[0].push_token!;
     if (list.length >= DIGEST_AT) {
-      const names = list.slice(0, 3).map((n) => n.title.replace(/ (is on sale|hit your price|dropped to .*)$/, '').replace(/^Last chance: /, '').replace(/: lowest price yet$/, ''));
+      const names = list.slice(0, 3).map((n) => n.title.replace(/ (is on sale|hit your price|dropped to .*)$/, '').replace(/^Last chance: /, '').replace(/: lowest price yet$/, '').replace(/ is \d+% off$/, ''));
       out.push({
         message: {
           to,

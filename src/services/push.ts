@@ -66,6 +66,7 @@ export async function syncDevice(): Promise<void> {
     quietStart: s.quietHours ? s.quietStart : null,
     quietEnd: s.quietHours ? s.quietEnd : null,
     alertsEnabled: s.alertsEnabled,
+    eventAlerts: { storeSales: s.eventStoreSales, bigDeals: s.eventBigDeals, platforms: s.eventPlatforms, minDiscount: s.eventMinDiscount },
   };
   const key = JSON.stringify(body);
   if (key === lastSent) return;

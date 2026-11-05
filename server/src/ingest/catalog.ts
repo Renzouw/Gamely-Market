@@ -7,6 +7,7 @@ import { searchUs } from '../sources/nintendo/catalogUs';
 import { findJapanNsuid } from '../sources/nintendo/catalogJp';
 import { listSteamDeals } from '../sources/steam';
 import { all } from '../db';
+import { recordSaleCount } from '../events/run';
 import { attachNsuid, gameIdForNsuid, matchCandidates, sourceError, sourceOk, tx, upsertGame, type Group } from '../store';
 import { pickMatch } from './match';
 
@@ -66,6 +67,8 @@ export async function syncEuCatalog(db: Db, o: SyncOpts): Promise<string[]> {
           ids.push(ingestSwitchEntry(db, 'europe', g.nsuids!.europe!, g, rank));
         });
       });
+      // The store's own count of discounted games feeds sale event detection
+      if (page === 0 && o.onSaleOnly) recordSaleCount(db, o.platform, total);
       if ((page + 1) * pageSize >= total || games.length === 0) break;
     }
     sourceOk(db, 'nintendo-eu-catalog', ids.length);
@@ -126,6 +129,7 @@ export async function discoverSteamDeals(db: Db, pages = 10): Promise<string[]> 
   try {
     for (let page = 0; page < pages; page++) {
       const res = await listSteamDeals({ country: 'US', currency: 'USD', sort: 'popular', page, pageSize: 50 });
+      if (page === 0) recordSaleCount(db, 'steam', res.total);
       tx(db, () => {
         res.games.forEach((g, i) => {
           upsertGame(db, { id: g.key, platform: 'steam', title: g.title, image: g.image, storeUrl: g.storeUrl, steamAppId: g.steamAppId, releaseDate: g.releaseDate, rank: page * 50 + i });

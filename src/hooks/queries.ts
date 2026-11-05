@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { AlertPrefs, ApiActivity, ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiWatch, DealSort, WatchInput } from '@shared/api';
+import type { AlertPrefs, ApiActivity, ApiSaleEvent, ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiWatch, DealSort, WatchInput } from '@shared/api';
 import { summarize, type PriceSummary } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { Platform, RegionPrice } from '@shared/types';
@@ -16,6 +16,11 @@ export function usePrefs() {
 
 export function useFx() {
   return useQuery({ queryKey: ['fx'], queryFn: () => api<ApiFx>('/v1/fx'), staleTime: 3 * 3600_000, gcTime: 48 * 3600_000 });
+}
+
+/** Store-wide sales happening right now. */
+export function useSaleEvents() {
+  return useQuery({ queryKey: ['events'], queryFn: () => api<{ items: ApiSaleEvent[] }>('/v1/events').then((r) => r.items), staleTime: 5 * 60_000 });
 }
 
 export function useStatus() {

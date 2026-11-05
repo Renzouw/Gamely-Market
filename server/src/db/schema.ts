@@ -132,6 +132,34 @@ CREATE TABLE IF NOT EXISTS steam_currency (
   checked_at    INTEGER NOT NULL
 );
 
+-- How many games each store reports as discounted, at most one reading per hour
+CREATE TABLE IF NOT EXISTS sale_counts (
+  source        TEXT NOT NULL,             -- switch2 | switch | steam
+  t             INTEGER NOT NULL,          -- start of the hour
+  count         INTEGER NOT NULL,
+  PRIMARY KEY (source, t)
+);
+
+-- Store-wide sales, detected when the discounted count jumps well above normal
+CREATE TABLE IF NOT EXISTS sale_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform      TEXT NOT NULL,
+  started_at    INTEGER NOT NULL,
+  ended_at      INTEGER,
+  baseline      INTEGER NOT NULL,          -- frozen at the start, so a long sale doesn't raise its own bar
+  latest        INTEGER NOT NULL,
+  peak          INTEGER NOT NULL
+);
+
+-- Big deals already sent to a device, so a digest never repeats a game for the same sale
+CREATE TABLE IF NOT EXISTS deal_seen (
+  device_id     TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  game_id       TEXT NOT NULL,
+  sale_key      TEXT NOT NULL,
+  at            INTEGER NOT NULL,
+  PRIMARY KEY (device_id, game_id, sale_key)
+);
+
 CREATE TABLE IF NOT EXISTS source_status (
   source        TEXT PRIMARY KEY,
   last_ok       INTEGER,

@@ -11,7 +11,9 @@ import { hourLabel } from '../../lib/format';
 import { space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
-type Picker = 'home' | 'currency' | 'quietStart' | 'quietEnd' | 'theme' | undefined;
+type Picker = 'home' | 'currency' | 'quietStart' | 'quietEnd' | 'theme' | 'eventPlatforms' | 'minDiscount' | undefined;
+
+const PLATFORM_NAMES = { switch2: 'Switch 2', switch: 'Switch', steam: 'Steam' } as const;
 
 const CURRENCY_NAMES: Record<string, string> = (() => {
   try {
@@ -58,6 +60,20 @@ export default function SettingsScreen() {
             <Row label="Until" value={hourLabel(s.quietEnd)} onPress={() => setPicker('quietEnd')} />
           </>
         ) : null}
+      </Group>
+
+      <Group
+        title="Sales and events"
+        footer={s.alertsEnabled ? 'Big deals arrive as one digest, at most every 12 hours. Games on your watchlist are left out, since you already get alerts for them.' : 'Turn on price alerts above to get these.'}
+      >
+        <SwitchRow first label="Store-wide sales" detail="When Steam or the eShop starts a major sale" value={s.eventStoreSales} onChange={(v) => s.set({ eventStoreSales: v })} />
+        <SwitchRow label="Big deals on popular games" detail={`${s.eventMinDiscount}% off or more`} value={s.eventBigDeals} onChange={(v) => s.set({ eventBigDeals: v })} />
+        {s.eventBigDeals ? <Row label="Minimum discount" value={`${s.eventMinDiscount}%`} onPress={() => setPicker('minDiscount')} /> : null}
+        <Row
+          label="Platforms"
+          value={s.eventPlatforms.length === 3 ? 'All' : s.eventPlatforms.length ? s.eventPlatforms.map((p) => PLATFORM_NAMES[p]).join(', ') : 'None'}
+          onPress={() => setPicker('eventPlatforms')}
+        />
       </Group>
 
       <Group title="App">
@@ -111,6 +127,23 @@ export default function SettingsScreen() {
             />
           ))}
         </ScrollView>
+      </Sheet>
+      <Sheet visible={picker === 'eventPlatforms'} onClose={() => setPicker(undefined)} title="Sales and events for">
+        {(['switch2', 'switch', 'steam'] as const).map((p) => (
+          <SheetOption
+            key={p}
+            label={PLATFORM_NAMES[p]}
+            selected={s.eventPlatforms.includes(p)}
+            onPress={() => s.set({ eventPlatforms: s.eventPlatforms.includes(p) ? s.eventPlatforms.filter((x) => x !== p) : [...s.eventPlatforms, p] })}
+          />
+        ))}
+        <View style={{ height: space.sm }} />
+      </Sheet>
+      <Sheet visible={picker === 'minDiscount'} onClose={() => setPicker(undefined)} title="Big deals start at">
+        {[40, 50, 60, 70, 80].map((d) => (
+          <SheetOption key={d} label={`${d}% off`} selected={s.eventMinDiscount === d} onPress={() => (s.set({ eventMinDiscount: d }), setPicker(undefined))} />
+        ))}
+        <View style={{ height: space.sm }} />
       </Sheet>
       <Sheet visible={picker === 'theme'} onClose={() => setPicker(undefined)} title="Appearance">
         {(['system', 'dark', 'light'] as ThemePref[]).map((t) => (

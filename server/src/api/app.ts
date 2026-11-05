@@ -16,6 +16,7 @@ import { getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, ups
 import { dailyBest, type HistoryRow } from './history';
 import { effectiveRegions, listDeals, searchGames } from './listings';
 import { queueAlertsForChanges } from '../alerts/run';
+import { activeEvents } from '../events/run';
 
 interface DeviceRow {
   id: string;
@@ -110,6 +111,11 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     if (!fx) return c.json({ error: 'Exchange rates not loaded yet' }, 503);
     c.header('Cache-Control', 'public, max-age=600');
     return c.json(fx);
+  });
+
+  app.get('/v1/events', (c) => {
+    c.header('Cache-Control', 'public, max-age=120');
+    return c.json({ items: activeEvents(db) });
   });
 
   app.get('/v1/deals', (c) => {
@@ -234,6 +240,14 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     quietStart: z.number().int().min(0).max(23).nullable().optional(),
     quietEnd: z.number().int().min(0).max(23).nullable().optional(),
     alertsEnabled: z.boolean(),
+    eventAlerts: z
+      .object({
+        storeSales: z.boolean(),
+        bigDeals: z.boolean(),
+        platforms: z.array(z.enum(['switch2', 'switch', 'steam'])).max(3),
+        minDiscount: z.number().int().min(10).max(95),
+      })
+      .optional(),
   });
 
   app.put('/v1/devices/me', requireDevice, async (c) => {
@@ -250,7 +264,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     run(
       db,
       `UPDATE devices SET push_token = COALESCE(?, push_token), os = ?, home_region = ?, currency = ?, switch_regions = ?, steam_regions = ?,
-         tz = ?, quiet_start = ?, quiet_end = ?, alerts_enabled = ? WHERE id = ?`,
+         tz = ?, quiet_start = ?, quiet_end = ?, alerts_enabled = ?, event_alerts = COALESCE(?, event_alerts) WHERE id = ?`,
       v.pushToken ?? null,
       v.os ?? null,
       v.homeRegion,
@@ -261,6 +275,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
       v.quietStart ?? null,
       v.quietEnd ?? null,
       v.alertsEnabled ? 1 : 0,
+      v.eventAlerts ? JSON.stringify(v.eventAlerts) : null,
       d.id,
     );
     if (v.pushToken === null) run(db, 'UPDATE devices SET push_token = NULL WHERE id = ?', d.id);

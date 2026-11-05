@@ -8,11 +8,12 @@ export function useNotificationTaps() {
   const last = Notifications.useLastNotificationResponse();
   const qc = useQueryClient();
   useEffect(() => {
-    const data = last?.notification.request.content.data as { gameId?: string; screen?: string } | undefined;
+    const data = last?.notification.request.content.data as { gameId?: string; screen?: string; platform?: string } | undefined;
     if (!data) return;
     qc.invalidateQueries({ queryKey: ['activity'] });
     qc.invalidateQueries({ queryKey: ['watches'] });
     if (typeof data.gameId === 'string') router.push({ pathname: '/game/[key]', params: { key: data.gameId } });
     else if (data.screen === 'activity') router.push({ pathname: '/watchlist', params: { tab: 'alerts' } });
+    else if (data.screen === 'deals') router.push({ pathname: '/', params: { platform: data.platform ?? 'switch2' } });
   }, [last, qc]);
 }

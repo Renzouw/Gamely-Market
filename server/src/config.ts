@@ -44,6 +44,8 @@ export const config = {
     catalog: num(env.EVERY_CATALOG_MIN, 720) * MIN,
     fullSweep: num(env.EVERY_SWEEP_MIN, 1440) * MIN, // every game, every region
     endingSoon: num(env.EVERY_ENDING_MIN, 60) * MIN,
+    saleEvents: num(env.EVERY_EVENTS_MIN, 30) * MIN, // store-wide sale detection
+    bigDeals: num(env.EVERY_BIG_DEALS_MIN, 180) * MIN,
     dispatch: num(env.EVERY_DISPATCH_SEC, 30) * 1000,
     receipts: num(env.EVERY_RECEIPTS_MIN, 15) * MIN,
   },

@@ -134,6 +134,31 @@ export interface DeviceSettings {
   quietStart?: number | null;
   quietEnd?: number | null;
   alertsEnabled: boolean;
+  eventAlerts?: EventPrefs;
+}
+
+/** Alerts that aren't about a watched game: store-wide sales and big deals. */
+export interface EventPrefs {
+  /** Steam or the eShop starts a major sale */
+  storeSales: boolean;
+  /** Popular games at a deep discount, sent as a digest */
+  bigDeals: boolean;
+  platforms: ('switch2' | 'switch' | 'steam')[];
+  /** Minimum discount for a big deal, in percent */
+  minDiscount: number;
+}
+
+export const DEFAULT_EVENT_ALERTS: EventPrefs = { storeSales: true, bigDeals: true, platforms: ['switch2', 'switch', 'steam'], minDiscount: 50 };
+
+/** A store-wide sale we detected from the number of discounted games. */
+export interface ApiSaleEvent {
+  id: number;
+  platform: Platform;
+  startedAt: number;
+  /** Games discounted right now, as reported by the store */
+  count: number;
+  /** A normal day's count before the sale started */
+  baseline: number;
 }
 
 export interface DeviceRegistration {
@@ -141,7 +166,7 @@ export interface DeviceRegistration {
   secret: string;
 }
 
-export type AlertKind = 'sale' | 'drop' | 'target' | 'low' | 'ending' | 'digest';
+export type AlertKind = 'sale' | 'drop' | 'target' | 'low' | 'ending' | 'digest' | 'event' | 'deals';
 
 export interface ApiActivity {
   id: number;

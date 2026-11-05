@@ -71,6 +71,8 @@ const KIND_ICON: Record<ApiActivity['kind'], keyof typeof Ionicons.glyphMap> = {
   low: 'ribbon',
   ending: 'time',
   digest: 'albums',
+  event: 'megaphone',
+  deals: 'flame',
 };
 
 const AlertRow = memo(function AlertRow({ a }: { a: ApiActivity }) {

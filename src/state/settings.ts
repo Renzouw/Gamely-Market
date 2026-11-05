@@ -20,6 +20,12 @@ export interface Settings {
   quietStart: number;
   quietEnd: number;
   theme: ThemePref;
+  /** Store-wide sale alerts */
+  eventStoreSales: boolean;
+  /** Big deals on popular games */
+  eventBigDeals: boolean;
+  eventPlatforms: ('switch2' | 'switch' | 'steam')[];
+  eventMinDiscount: number;
 }
 
 interface SettingsState extends Settings {
@@ -62,6 +68,10 @@ export const useSettings = create<SettingsState>()(
         quietStart: 22,
         quietEnd: 8,
         theme: 'system',
+        eventStoreSales: true,
+        eventBigDeals: true,
+        eventPlatforms: ['switch2', 'switch', 'steam'],
+        eventMinDiscount: 50,
         set: (patch) => set(patch),
         toggleSwitchRegion: (code) => set((s) => ({ switchRegions: toggle(s.switchRegions, code) })),
         toggleSteamRegion: (code) => set((s) => ({ steamRegions: toggle(s.steamRegions, code) })),
@@ -70,8 +80,19 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'gamely.settings',
       storage: persistStorage,
-      version: 2,
-      migrate: (old) => ({ alertsPrompted: false, quietHours: true, quietStart: 22, quietEnd: 8, ...(old as object) }) as SettingsState,
+      version: 3,
+      migrate: (old) =>
+        ({
+          alertsPrompted: false,
+          quietHours: true,
+          quietStart: 22,
+          quietEnd: 8,
+          eventStoreSales: true,
+          eventBigDeals: true,
+          eventPlatforms: ['switch2', 'switch', 'steam'],
+          eventMinDiscount: 50,
+          ...(old as object),
+        }) as SettingsState,
     },
   ),
 );

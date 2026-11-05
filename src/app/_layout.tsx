@@ -30,7 +30,7 @@ function useDeviceSync() {
   useEffect(() => {
     const t = setTimeout(() => syncDevice().catch(() => undefined), 400);
     return () => clearTimeout(t);
-  }, [settings.homeRegion, settings.homeCurrency, settings.switchRegions, settings.steamRegions, settings.alertsEnabled, settings.quietHours, settings.quietStart, settings.quietEnd]);
+  }, [settings.homeRegion, settings.homeCurrency, settings.switchRegions, settings.steamRegions, settings.alertsEnabled, settings.quietHours, settings.quietStart, settings.quietEnd, settings.eventStoreSales, settings.eventBigDeals, settings.eventPlatforms, settings.eventMinDiscount]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => s === 'active' && syncDevice().catch(() => undefined));
     return () => sub.remove();

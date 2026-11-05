@@ -5,6 +5,7 @@ import { discoverSteamDeals, matchJapan, syncEuCatalog, syncUsCatalog } from './
 import { invalidateFx, syncFx } from './ingest/fx';
 import { refreshGames } from './ingest/prices';
 import { checkReceipts, dispatch } from './push/dispatch';
+import { detectSaleEvents, queueBigDeals } from './events/run';
 import { chunk } from './sources/http';
 import type { PriceChange } from './store';
 
@@ -38,6 +39,8 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
       (await syncUsCatalog(db, { platform, onSaleOnly: true, maxPages: 60 })).forEach((id) => found.add(id));
     }
     (await discoverSteamDeals(db)).forEach((id) => found.add(id));
+    // The discovery pass just recorded fresh store-wide counts; check for a big sale right away
+    detectSaleEvents(db);
     // Only re-price what we haven't already got a sale price for
     const fresh = [...found].filter((id) => !get<{ n: number }>(db, 'SELECT 1 AS n FROM games WHERE id = ? AND on_sale = 1', id));
     for (const part of chunk(fresh, 500)) afterRefresh(await refreshGames(db, part));
@@ -72,6 +75,8 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     { name: 'hot', every: config.schedule.hotPrices, atStart: false, run: hot },
     { name: 'sales', every: config.schedule.salePrices, atStart: false, run: sales },
     { name: 'sweep', every: config.schedule.fullSweep, atStart: false, run: sweep },
+    { name: 'events', every: config.schedule.saleEvents, atStart: false, run: async () => void detectSaleEvents(db) },
+    { name: 'big-deals', every: config.schedule.bigDeals, atStart: false, run: async () => void queueBigDeals(db) },
     { name: 'ending', every: config.schedule.endingSoon, atStart: false, run: async () => void queueEndingAlerts(db) },
     { name: 'dispatch', every: config.schedule.dispatch, atStart: false, run: async () => void (await dispatch(db)) },
     { name: 'receipts', every: config.schedule.receipts, atStart: false, run: () => checkReceipts(db) },
