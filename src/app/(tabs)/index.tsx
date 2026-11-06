@@ -12,7 +12,8 @@ import { CountryChip, useCountry, useHomePriced } from '../../components/Country
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
-import { directSwitchCountries } from '../../direct';
+import { directPricedCountries } from '../../direct';
+import { useLinkCount } from '../../state/links';
 import { useDataMode, useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
@@ -73,9 +74,10 @@ export default function DealsScreen() {
   const q = useDeals(platform, sort, filters);
   const mode = useDataMode();
   const phoneOnly = mode === 'direct';
-  // Phone-only mode can price the Europe/Oceania eShops; the rest need the server
+  // Phone-only mode prices Europe/Oceania, plus the server's matched regions once it holds them
+  const haveMatches = useLinkCount((s) => s.count > 0);
   const regionCount = phoneOnly
-    ? directSwitchCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions }).length
+    ? directPricedCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions }, haveMatches).length
     : new Set([...prefs.switchRegions, prefs.home]).size;
   const sortLabel = SORTS.find((s) => s.value === sort)!.label;
 

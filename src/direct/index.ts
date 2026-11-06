@@ -58,10 +58,19 @@ const PAGE = 30;
 
 /* --------------------------------- regions --------------------------------- */
 
-/** Switch countries phone-only mode can price: the Europe/Oceania group you buy from. */
+/** Switch countries phone-only mode can price for any game: the Europe/Oceania group you buy from. */
 export function directSwitchCountries(ctx: DirectContext): string[] {
   const wanted = new Set([...ctx.switchRegions, ctx.home]);
   return SWITCH_REGIONS.filter((r) => r.group === 'europe' && wanted.has(r.code)).map((r) => r.code);
+}
+
+/**
+ * Every Switch country phone-only mode can price: Europe, plus the regions
+ * the server matched, once the phone holds a copy of those matches.
+ */
+export function directPricedCountries(ctx: DirectContext, haveMatches: boolean): string[] {
+  const wanted = new Set([...ctx.switchRegions, ctx.home]);
+  return SWITCH_REGIONS.filter((r) => wanted.has(r.code) && (r.group === 'europe' || (haveMatches && (SERVER_MATCHED as readonly string[]).includes(r.group)))).map((r) => r.code);
 }
 
 function steamCountries(ctx: DirectContext): { code: string; currency: string }[] {
@@ -213,7 +222,8 @@ export async function directDeals(q: DealQuery, ctx: DirectContext, fx: FxRates 
   const games = await withKnownIds(found.games);
   const prices = await directPrices(games, c);
   const items = games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }));
-  const countries = new Set(directSwitchCountries(c));
+  // A sale counts in any country we priced (regions without stored matches simply have no prices)
+  const countries = new Set(directPricedCountries(c, true));
   return { items: rankPage(items, q, fx, c.home, countries), total, nextCursor: (page + 1) * PAGE < total ? String(page + 1) : undefined, checkedAt: now };
 }
 

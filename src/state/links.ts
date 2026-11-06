@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { create } from 'zustand';
 import type { ApiLinks } from '@shared/api';
 import { decodeLinks, type GameLinks } from '@shared/links';
 import type { Game } from '@shared/types';
@@ -18,6 +19,10 @@ const REFRESH_MS = 24 * 3600_000;
 
 let map: Map<string, GameLinks> | undefined;
 let loading: Promise<Map<string, GameLinks>> | undefined;
+
+/** How many games the phone holds matches for, so screens can tell when those regions work offline. */
+export const useLinkCount = create<{ count: number }>(() => ({ count: 0 }));
+const loaded = (m: Map<string, GameLinks>) => (useLinkCount.setState({ count: m.size }), m);
 
 interface Meta {
   chunks: number;
@@ -40,7 +45,7 @@ export function loadLinks(): Promise<Map<string, GameLinks>> {
     const meta = await readMeta();
     if (!meta?.chunks) return (map = new Map());
     const parts = await AsyncStorage.multiGet(Array.from({ length: meta.chunks }, (_, i) => CHUNK + i));
-    return (map = decodeLinks(parts.map(([, v]) => v ?? '').join('\n')));
+    return (map = loaded(decodeLinks(parts.map(([, v]) => v ?? '').join('\n'))));
   })().catch(() => (map = new Map()));
   return loading;
 }
@@ -54,7 +59,7 @@ export async function rememberLinks(rows: string, now = Date.now()): Promise<voi
   await AsyncStorage.multiSet([...chunks, [META, JSON.stringify({ chunks: chunks.length, syncedAt: now } satisfies Meta)]]);
   // Drop pieces left over from a longer copy
   if (old && old.chunks > chunks.length) await AsyncStorage.multiRemove(Array.from({ length: old.chunks - chunks.length }, (_, i) => CHUNK + (chunks.length + i)));
-  map = decodeLinks(rows);
+  map = loaded(decodeLinks(rows));
   loading = Promise.resolve(map);
 }
 
@@ -86,4 +91,5 @@ export async function withKnownIds<T extends Pick<Game, 'key' | 'nsuids'>>(games
 export function forgetLinks() {
   map = undefined;
   loading = undefined;
+  useLinkCount.setState({ count: 0 });
 }

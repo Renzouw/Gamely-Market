@@ -1,22 +1,26 @@
 import { useState } from 'react';
 import { ScrollView } from 'react-native';
 import { SWITCH_REGIONS, type Region } from '@shared/regions';
-import { directSwitchCountries } from '../direct';
+import { directPricedCountries } from '../direct';
+import { useLinkCount } from '../state/links';
 import { useDataMode, usePrefs, useStatus } from '../hooks/queries';
 import { Chip, Sheet, SheetOption } from './ui';
 
 /**
  * The eShops someone can look at one at a time: the ones they compare (plus
- * home) that we can price right now. Phone-only mode reaches only Europe and
- * Oceania; the Americas need the server's catalog, which may be off.
+ * home) that we can price right now. Phone-only mode reaches Europe and
+ * Oceania, plus the regions the server matched once the phone holds a copy
+ * of those matches. With the server, the Americas show only when it has
+ * them turned on.
  */
 export function useCountryOptions(): Region[] {
   const prefs = usePrefs();
   const mode = useDataMode();
   const americas = useStatus().data?.americasEnabled === true;
+  const haveMatches = useLinkCount((s) => s.count > 0);
   const codes = new Set(
     mode === 'direct'
-      ? directSwitchCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions })
+      ? directPricedCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions }, haveMatches)
       : [...prefs.switchRegions, prefs.home],
   );
   return SWITCH_REGIONS.filter((r) => codes.has(r.code) && (mode === 'direct' || r.group !== 'americas' || americas));

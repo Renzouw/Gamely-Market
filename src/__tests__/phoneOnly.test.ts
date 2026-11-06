@@ -1,7 +1,7 @@
 import { DEFAULT_ALERTS } from '@shared/api';
 import { summarize } from '@shared/pricing';
 import type { RegionPrice } from '@shared/types';
-import { directDeals, directGames, directPrices, directSwitchCountries } from '../direct';
+import { directDeals, directGames, directPricedCountries, directPrices, directSwitchCountries } from '../direct';
 import { localLows, useLocalHistory } from '../direct/history';
 import { decodeLinks, encodeLinks } from '@shared/links';
 import { forgetLinks, rememberLinks } from '../state/links';
@@ -200,5 +200,13 @@ describe('phone-only prices outside Europe', () => {
     const bananza = { key: 'sw:eu:70010000096810', platform: 'switch2' as const, nsuids: { europe: '70010000096810' } };
     await directPrices([bananza], { ...ctx, switchRegions: ['GB', 'US', 'JP', 'HK', 'KR'] });
     expect(asked.sort()).toEqual(['GB:70010000096810', 'HK:70010000096812', 'JP:70010000096306', 'KR:70010000096811', 'US:70010000096809']);
+  });
+});
+
+describe('phone-only country choices', () => {
+  it('offers Asia and the Americas once the phone holds the server’s matches', () => {
+    const c = { home: 'US', currency: 'PHP', switchRegions: ['GB', 'DE', 'US', 'JP', 'HK', 'KR'], steamRegions: [] };
+    expect(directPricedCountries(c, false)).toEqual(['GB', 'DE']);
+    expect(directPricedCountries(c, true)).toEqual(['US', 'GB', 'DE', 'JP', 'HK', 'KR']);
   });
 });
