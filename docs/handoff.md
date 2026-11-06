@@ -7,6 +7,7 @@ Gamely was built in a cloud Claude Code session and moved to a local project on 
 - Writing for them should sound human and plain. Never use em dashes.
 - No paid servers. The server runs on their PC; the app must keep working when the PC is off (phone-only mode).
 - They aren't a developer: give exact commands to type, one step at a time, and say which window to type them in.
+- Every session ships its own work: push, restart the PC server if it changed, and send app changes as an over-the-air update (`npm run update:app`). The steps are at the end of `AGENTS.md`.
 - Never ask them to paste a password, token or key into the chat. The Firebase service account key goes straight to Expo (`npm run setup:push` handles it).
 
 ## What's running on their PC
