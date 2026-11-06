@@ -10,6 +10,8 @@ export function useNotificationTaps() {
   useEffect(() => {
     const data = last?.notification.request.content.data as { gameId?: string; screen?: string; platform?: string } | undefined;
     if (!data) return;
+    // Handled: don't reopen it if the app remounts
+    Notifications.clearLastNotificationResponse();
     qc.invalidateQueries({ queryKey: ['activity'] });
     qc.invalidateQueries({ queryKey: ['watches'] });
     if (typeof data.gameId === 'string') router.push({ pathname: '/game/[key]', params: { key: data.gameId } });

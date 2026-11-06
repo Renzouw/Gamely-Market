@@ -10,12 +10,11 @@ import { HOME_CURRENCIES, STEAM_REGIONS, SWITCH_REGIONS } from '@shared/regions'
 import { americasEnabled, config } from '../config';
 import { all, get, placeholders, run, type Db } from '../db';
 import { readFx } from '../ingest/fx';
-import { refreshGames } from '../ingest/prices';
 import { searchSteam } from '../sources/steam';
 import { getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow } from '../store';
 import { dailyBest, type HistoryRow } from './history';
 import { effectiveRegions, listDeals, searchGames } from './listings';
-import { queueAlertsForChanges } from '../alerts/run';
+import { refreshAndAlert } from '../alerts/run';
 import { activeEvents } from '../events/run';
 
 interface DeviceRow {
@@ -45,16 +44,37 @@ const SOURCE_LABELS: Record<string, string> = {
   fx: 'Exchange rates (ECB)',
 };
 
-/** Tiny per-IP rate limit so one misbehaving client can't starve the rest. */
+/**
+ * The caller's address. X-Forwarded-For is only believed behind a proxy we
+ * run (TRUST_PROXY=1); otherwise anyone could pick a fresh address per request.
+ */
+function clientIp(c: Context): string {
+  if (config.trustProxy) {
+    const xff = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+    if (xff) return xff;
+  }
+  const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
+  return incoming?.socket?.remoteAddress ?? 'local';
+}
+
+/** Small fixed-window rate limit per address, so one client can't starve the rest. */
 function rateLimit(perMinute: number) {
   const hits = new Map<string, { n: number; reset: number }>();
+  let lastSweep = 0;
   return async (c: Context, next: Next) => {
-    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || c.req.header('x-real-ip') || 'local';
+    const ip = clientIp(c);
     const now = Date.now();
+    // Drop expired windows now and then, instead of wiping everyone's count
+    if (now - lastSweep > 60_000) {
+      for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
+      lastSweep = now;
+    }
     const h = hits.get(ip);
     if (!h || h.reset < now) hits.set(ip, { n: 1, reset: now + 60_000 });
-    else if (++h.n > perMinute) return c.json({ error: 'Too many requests' }, 429);
-    if (hits.size > 50_000) hits.clear();
+    else if (++h.n > perMinute) {
+      c.header('Retry-After', String(Math.ceil((h.reset - now) / 1000)));
+      return c.json({ error: 'Too many requests' }, 429);
+    }
     await next();
   };
 }
@@ -64,20 +84,36 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
   app.use('*', cors());
   app.use('*', compress());
   app.use('/v1/*', rateLimit(240));
+  // Registering devices is cheap for a client and costly for us; keep it rare
+  const deviceLimit = rateLimit(10);
   app.onError((e, c) => {
     console.error(e);
     return c.json({ error: 'Something went wrong' }, 500);
   });
 
-  /** Re-price a few games now, keeping response times bounded. */
+  /**
+   * Re-price a few games on demand, keeping response times bounded. The same
+   * game is never refreshed twice at once, and a game is tried at most once
+   * per refresh window, so page views can't be used to hammer the stores.
+   */
+  const inFlight = new Map<string, Promise<unknown>>();
+  const lastTried = new Map<string, number>();
   async function refreshNow(ids: string[], timeoutMs: number) {
-    const job = refreshGames(db, ids).then((changes) => {
-      if (changes.length) {
-        queueAlertsForChanges(db, changes);
-        opts.onPricesChanged?.();
-      }
-    });
-    await Promise.race([job.catch(() => undefined), new Promise((r) => setTimeout(r, timeoutMs))]);
+    const now = Date.now();
+    const due = ids.filter((id) => !inFlight.has(id) && now - (lastTried.get(id) ?? 0) > config.refreshOnViewAfterMs);
+    const waiting = ids.map((id) => inFlight.get(id)).filter(Boolean) as Promise<unknown>[];
+    if (due.length) {
+      due.forEach((id) => lastTried.set(id, now));
+      if (lastTried.size > 100_000) for (const [k, t] of lastTried) if (now - t > config.refreshOnViewAfterMs) lastTried.delete(k);
+      const job = refreshAndAlert(db, due)
+        .then(({ changes }) => changes.length && opts.onPricesChanged?.())
+        .catch(() => undefined)
+        .finally(() => due.forEach((id) => inFlight.delete(id)));
+      due.forEach((id) => inFlight.set(id, job));
+      waiting.push(job);
+    }
+    if (!waiting.length) return;
+    await Promise.race([Promise.all(waiting), new Promise((r) => setTimeout(r, timeoutMs))]);
   }
 
   const requireDevice = async (c: Context<Env>, next: Next) => {
@@ -178,7 +214,9 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
 
     const { regions } = effectiveRegions(g.platform, q.data.home, csv(c.req.query('regions')));
     let rows = pricesFor(db, [id], regions).get(id) ?? [];
-    const oldest = rows.length ? Math.min(...rows.map((r) => r.checked_at)) : 0;
+    // Refresh when what we have is old, or when we've never priced it at all
+    const allRows = rows.length ? rows : (pricesFor(db, [id]).get(id) ?? []);
+    const oldest = allRows.length ? Math.min(...allRows.map((r) => r.checked_at)) : 0;
     if (Date.now() - oldest > config.refreshOnViewAfterMs) {
       await refreshNow([id], 4000);
       g = getGame(db, id)!;
@@ -189,7 +227,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     const now = Date.now();
     const hist = all<HistoryRow>(
       db,
-      `SELECT country, t, currency, price FROM price_history WHERE game_id = ? AND country IN (${placeholders(regions.length)}) ORDER BY t`,
+      `SELECT country, t, currency, price, discount FROM price_history WHERE game_id = ? AND country IN (${placeholders(regions.length)}) ORDER BY t`,
       id,
       ...regions,
     );
@@ -221,7 +259,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
 
   /* ------------------------------ devices ------------------------------ */
 
-  app.post('/v1/devices', (c) => {
+  app.post('/v1/devices', deviceLimit, (c) => {
     const id = randomUUID();
     const secret = randomBytes(24).toString('base64url');
     const now = Date.now();
@@ -260,6 +298,17 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
       new Intl.DateTimeFormat('en-US', { timeZone: tz });
     } catch {
       tz = 'UTC';
+    }
+    // A push token belongs to one install. After a reinstall, take it off the old device row
+    // so the phone doesn't get every alert twice.
+    if (v.pushToken) run(db, 'UPDATE devices SET push_token = NULL WHERE push_token = ? AND id != ?', v.pushToken, d.id);
+    // Target prices are stored in the device's currency; convert them when it changes
+    const fx = readFx(db);
+    if (v.currency !== d.currency && fx) {
+      for (const w of all<{ game_id: string; target: number }>(db, 'SELECT game_id, target FROM watches WHERE device_id = ? AND target IS NOT NULL', d.id)) {
+        const t = convert(w.target, d.currency, v.currency, fx);
+        run(db, 'UPDATE watches SET target = ? WHERE device_id = ? AND game_id = ?', t === undefined ? null : Math.round(t * 100) / 100, d.id, w.game_id);
+      }
     }
     run(
       db,
@@ -328,6 +377,10 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
       .safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'Bad request' }, 400);
     const existing = get<{ target: number | null; alerts: string }>(db, 'SELECT target, alerts FROM watches WHERE device_id = ? AND game_id = ?', d.id, gameId);
+    if (!existing) {
+      const count = get<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM watches WHERE device_id = ?', d.id)?.n ?? 0;
+      if (count >= config.maxWatchesPerDevice) return c.json({ error: `You can watch up to ${config.maxWatchesPerDevice} games. Remove one to add another.` }, 409);
+    }
     const alerts = { ...DEFAULT_ALERTS, ...(existing ? JSON.parse(existing.alerts) : {}), ...(body.data.alerts ?? {}) };
     const target = body.data.target === undefined ? (existing?.target ?? null) : body.data.target;
     run(

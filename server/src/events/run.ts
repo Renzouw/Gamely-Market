@@ -142,9 +142,11 @@ export function queueBigDeals(db: Db, now = Date.now()): number {
       const picks: PickedDeal[] = pickBigDeals({ device: ctx, prefs, candidates, watched, seen, fx, now });
       if (!picks.length) continue;
       const msg = composeDeals(picks, ctx.currency);
-      // Keep the digest deliverable while at least one of its deals is still running
-      const lastEnd = Math.max(...picks.map((p) => Date.parse(p.saleKey)).filter(Number.isFinite));
-      if (enqueue(db, row, 'deals', `deals:${row.id}:${Math.floor(now / HOUR)}`, msg, now, Number.isFinite(lastEnd) ? lastEnd : undefined)) {
+      // Keep the digest deliverable while at least one deal is still running. Some
+      // sale keys are plain dates (no known end), which aren't end times.
+      const ends = picks.filter((p) => p.saleKey.includes('T')).map((p) => Date.parse(p.saleKey)).filter(Number.isFinite);
+      const expires = ends.length === picks.length ? Math.max(...ends) : now + 48 * HOUR;
+      if (enqueue(db, row, 'deals', `deals:${row.id}:${Math.floor(now / HOUR)}`, msg, now, expires)) {
         for (const p of picks) run(db, 'INSERT OR IGNORE INTO deal_seen (device_id, game_id, sale_key, at) VALUES (?, ?, ?, ?)', row.id, p.gameId, p.saleKey, now);
         queued++;
       }

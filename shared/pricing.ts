@@ -75,16 +75,24 @@ export function formatMoney(amount: number | undefined, currency: string, locale
   if (amount === undefined || Number.isNaN(amount)) return '–';
   if (amount === 0) return 'Free';
   const digits = ZERO_DECIMAL.has(currency) ? 0 : 2;
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(digits)}`;
+  const f = formatter(currency, digits, locale);
+  return f ? f.format(amount) : `${currency} ${amount.toFixed(digits)}`;
+}
+
+/** Building an Intl.NumberFormat is slow; lists format hundreds of prices, so reuse them. */
+const formatters = new Map<string, Intl.NumberFormat | null>();
+function formatter(currency: string, digits: number, locale?: string): Intl.NumberFormat | null {
+  const key = `${locale ?? ''}|${currency}|${digits}`;
+  let f = formatters.get(key);
+  if (f === undefined) {
+    try {
+      f = new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits });
+    } catch {
+      f = null; // unknown currency code
+    }
+    formatters.set(key, f);
   }
+  return f;
 }
 
 /** "2d 4h", "5h", "40m", or undefined when the date is missing/past. */

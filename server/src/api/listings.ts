@@ -34,18 +34,25 @@ export function effectiveRegions(platform: Platform, home: string, regions: stri
   return { regions: regions.includes(home) ? regions : [...regions, home], home };
 }
 
-export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = Date.now()): ApiList {
+/** Cursors are plain offsets. Anything negative, fractional or garbled starts from the top. */
+export function parseCursor(c?: string): number {
+  const n = Math.floor(Number(c));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function rankDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now: number): Ranked[] {
   const { regions, home } = effectiveRegions(q.platform, q.home, q.regions);
   // For Steam, a "deal" means discounted in the store you can buy from.
   const saleRegions = new Set(q.platform === 'steam' ? [home] : regions);
   const wanted = new Set(regions);
 
-  const scored: { item: ApiListItem; s: PriceSummary; game: GameRow }[] = [];
+  const scored: Ranked[] = [];
   for (const { game, prices } of saleIndex(db, q.platform)) {
     const mine = prices.filter((p) => wanted.has(p.country)).map((p) => rowToPrice(p, now));
     // Must be on sale somewhere this person can actually buy it
     if (!mine.some((p) => p.sale && saleRegions.has(p.country))) continue;
-    const s = summarize(mine, { homeCurrency: q.currency, homeRegion: home, fx });
+    // On Steam you pay your own store's price, so rank and filter on that alone
+    const s = summarize(q.platform === 'steam' ? mine.filter((p) => p.country === home) : mine, { homeCurrency: q.currency, homeRegion: home, fx });
     if (q.minDiscount && (s.best?.discountPercent ?? 0) < q.minDiscount) continue;
     if (q.maxPrice !== undefined && (s.best?.converted === undefined || s.best.converted > q.maxPrice)) continue;
     if (q.abroad && (s.savingVsHome ?? 0) < q.abroad) continue;
@@ -68,9 +75,32 @@ export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = D
         return rankOf(a) - rankOf(b);
     }
   });
+  return scored;
+}
 
+type Ranked = { item: ApiListItem; s: PriceSummary; game: GameRow };
+
+/**
+ * Ranked results per distinct query, reused until prices change or the
+ * minute turns (so sale-end cutoffs stay accurate). Ranking 3,000 sale games
+ * costs ~150ms; a cache hit costs well under 1ms.
+ */
+const rankedCache = new Map<string, { version: number; minute: number; rows: Ranked[] }>();
+const RANKED_CACHE_MAX = 300;
+
+export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = Date.now()): ApiList {
+  const key = JSON.stringify([q.platform, q.sort, q.home, q.currency, [...q.regions].sort(), q.minDiscount, q.maxPrice, q.abroad, fx?.updatedAt]);
+  const minute = Math.floor(now / 60_000);
+  let hit = rankedCache.get(key);
+  if (!hit || hit.version !== version || hit.minute !== minute) {
+    hit = { version, minute, rows: rankDeals(db, q, fx, now) };
+    rankedCache.delete(key);
+    rankedCache.set(key, hit);
+    if (rankedCache.size > RANKED_CACHE_MAX) rankedCache.delete(rankedCache.keys().next().value!);
+  }
+  const scored = hit.rows;
   const limit = Math.min(q.limit ?? 30, 100);
-  const offset = Number(q.cursor ?? 0) || 0;
+  const offset = parseCursor(q.cursor);
   const page = scored.slice(offset, offset + limit);
   const nsuids = nsuidsForGames(db, page.map((p) => p.game.id));
   const items = page.map((p) => ({ ...p.item, game: { ...p.item.game, nsuids: nsuids.get(p.game.id) } }));
@@ -87,7 +117,7 @@ export type DirectoryPlatform = Platform | 'all-switch';
 export function searchGames(db: Db, p: { platform: DirectoryPlatform; key: string; regions: string[]; cursor?: string; limit?: number }, now = Date.now()): ApiList {
   const platforms = p.platform === 'all-switch' ? ['switch', 'switch2'] : [p.platform];
   const limit = Math.min(p.limit ?? 30, 100);
-  const offset = Number(p.cursor ?? 0) || 0;
+  const offset = parseCursor(p.cursor);
   const where = `platform IN (${platforms.map(() => '?').join(', ')})` + (p.key ? ' AND title_key LIKE ?' : '');
   const params: string[] = [...platforms];
   if (p.key) params.push(`%${p.key}%`);

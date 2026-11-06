@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { memo, useCallback } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { ApiGame, ApiPrice } from '@shared/api';
 import { endsSoon, formatMoney, timeLeft } from '@shared/pricing';
 import { regionLabel } from '@shared/regions';
@@ -24,8 +24,12 @@ interface Props {
 
 function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
   const { c } = useTheme();
+  // Smaller art on narrow phones (iPhone SE, small Androids) so titles keep room
+  const compact = useWindowDimensions().width < 360;
+  const coverW = compact ? 84 : COVER_W;
   const s = usePriceSummary(game.platform, prices);
-  const best = s.best;
+  // On Steam you pay your own store's price, so that's the one to show
+  const best = game.platform === 'steam' ? (s.home ?? s.best) : s.best;
   const isSteam = game.platform === 'steam';
   const homeIsBest = best && s.home && best.country === s.home.country;
   const region = best ? regionLabel(best.country) : undefined;
@@ -52,7 +56,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
   return (
     <Tap onPress={open} accessibilityRole="button" accessibilityLabel={label} scaleTo={0.985} style={styles.row}>
       <View style={styles.main}>
-        <Cover uri={game.image} title={game.title} platform={game.platform} width={COVER_W} height={COVER_H} />
+        <Cover uri={game.image} title={game.title} platform={game.platform} width={coverW} height={compact ? 48 : COVER_H} />
         <View style={styles.text}>
           <Text variant="bodyMedium" numberOfLines={2}>
             {game.title}
@@ -69,7 +73,9 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
         <View style={styles.price}>
           {best?.converted !== undefined ? (
             <>
-              <Text variant="priceM">{formatMoney(best.converted, s.currency)}</Text>
+              <Text variant="priceM" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {formatMoney(best.converted, s.currency)}
+              </Text>
               <View style={styles.priceMeta}>
                 {best.discountPercent ? (
                   <Text variant="priceXS" tone="signal">
@@ -88,7 +94,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
       </View>
 
       {ticker && s.ranked.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.ticker} accessible={false}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.ticker, { paddingLeft: coverW + space.md }]} accessible={false}>
           {s.ranked.slice(0, 10).map((p, i) =>
             p.converted === undefined ? null : (
               <View key={p.country} style={styles.tick}>
@@ -103,7 +109,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
           )}
         </ScrollView>
       ) : null}
-      {ticker ? <View style={[styles.rule, { backgroundColor: c.line }]} /> : null}
+      {ticker ? <View style={[styles.rule, { backgroundColor: c.line, left: GUTTER + coverW + space.md }]} /> : null}
     </Tap>
   );
 }
@@ -115,7 +121,7 @@ const styles = StyleSheet.create({
   main: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   text: { flex: 1, gap: 3 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  price: { alignItems: 'flex-end', minWidth: 72, gap: 2 },
+  price: { alignItems: 'flex-end', minWidth: 72, maxWidth: '36%', gap: 2, flexShrink: 0 },
   priceMeta: { flexDirection: 'row', gap: 6 },
   ticker: { gap: space.lg, paddingTop: space.sm, paddingLeft: COVER_W + space.md },
   tick: { flexDirection: 'row', gap: 5 },

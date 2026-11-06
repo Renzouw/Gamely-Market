@@ -116,7 +116,10 @@ export function regionsInGroup(group: Region['group'], selected: string[]): Regi
 
 /** Rough guess of a sensible starting setup from the device locale. */
 export function guessHome(regionCode?: string | null, currencyCode?: string | null) {
-  const region = regionCode && byCode.has(regionCode) ? regionCode : 'US';
+  // Countries we don't list (Ireland, Austria, Belgium...) map by currency: euro countries share
+  // Nintendo's European store, so Germany is a much better stand-in than the US.
+  const byCurrency = currencyCode ? SWITCH_REGIONS.find((r) => r.currency === currencyCode)?.code : undefined;
+  const region = regionCode && byCode.has(regionCode) ? regionCode : (byCurrency ?? 'US');
   const currency = currencyCode && HOME_CURRENCIES.includes(currencyCode)
     ? currencyCode
     : byCode.get(region)?.currency ?? 'USD';

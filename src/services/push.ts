@@ -3,7 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import type { DeviceSettings } from '@shared/api';
-import { api } from '../api/client';
+import { api, onDeviceReset } from '../api/client';
 import { deviceTimeZone, useSettings } from '../state/settings';
 
 if (Platform.OS !== 'web') {
@@ -29,6 +29,7 @@ async function pushToken(): Promise<string | undefined> {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('price-alerts', {
       name: 'Price alerts',
+      // eslint-disable-next-line import/namespace -- re-exported with `export *`, which the lint plugin can't follow
       importance: Notifications.AndroidImportance.HIGH,
       lightColor: '#C8F04A',
     });
@@ -40,20 +41,48 @@ async function pushToken(): Promise<string | undefined> {
   }
 }
 
-/** Ask for notification permission. Returns whether alerts can now be delivered. */
-export async function enableAlerts(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+export type EnableResult = { ok: true } | { ok: false; reason: 'unavailable'; message: string } | { ok: false; reason: 'denied'; canAskAgain: boolean };
+
+/** Set when we sent the person to the OS settings to allow notifications. */
+let waitingForSettings = false;
+export const markWaitingForSettings = () => void (waitingForSettings = true);
+
+/**
+ * Ask for notification permission. Alerts only count as on when this build
+ * can actually receive pushes and the OS allows them.
+ */
+export async function enableAlerts(): Promise<EnableResult> {
+  const set = useSettings.getState().set;
+  set({ alertsPrompted: true });
+  const unavailable = pushUnavailableReason();
+  if (unavailable) return { ok: false, reason: 'unavailable', message: unavailable };
   let perm = await Notifications.getPermissionsAsync();
   if (!perm.granted && perm.canAskAgain) perm = await Notifications.requestPermissionsAsync();
-  useSettings.getState().set({ alertsEnabled: perm.granted, alertsPrompted: true });
-  await syncDevice();
-  return perm.granted;
+  set({ alertsEnabled: perm.granted });
+  await syncDevice().catch(() => undefined);
+  return perm.granted ? { ok: true } : { ok: false, reason: 'denied', canAskAgain: perm.canAskAgain };
+}
+
+/**
+ * Keep the in-app switch honest when the person changes notification
+ * permission in the OS settings while the app is in the background.
+ */
+export async function reconcilePermission(): Promise<void> {
+  if (pushUnavailableReason()) return;
+  const { alertsEnabled, set } = useSettings.getState();
+  const perm = await Notifications.getPermissionsAsync();
+  if (alertsEnabled && !perm.granted) set({ alertsEnabled: false });
+  else if (!alertsEnabled && perm.granted && waitingForSettings) set({ alertsEnabled: true });
+  waitingForSettings = false;
 }
 
 let lastSent = '';
+// A fresh registration on the server knows nothing yet, so send everything again
+onDeviceReset(() => (lastSent = ''));
 
 /** Tell the server where and how to reach this phone. Cheap to call often; it only sends changes. */
-export async function syncDevice(): Promise<void> {
+/** Returns true when settings were sent (so server-side values like converted targets may have changed). */
+export async function syncDevice(): Promise<boolean> {
   const s = useSettings.getState();
   const body: DeviceSettings = {
     pushToken: s.alertsEnabled ? ((await pushToken()) ?? null) : null,
@@ -69,7 +98,8 @@ export async function syncDevice(): Promise<void> {
     eventAlerts: { storeSales: s.eventStoreSales, bigDeals: s.eventBigDeals, platforms: s.eventPlatforms, minDiscount: s.eventMinDiscount },
   };
   const key = JSON.stringify(body);
-  if (key === lastSent) return;
+  if (key === lastSent) return false;
   await api('/v1/devices/me', { method: 'PUT', body, auth: true });
   lastSent = key;
+  return true;
 }

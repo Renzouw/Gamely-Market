@@ -251,10 +251,23 @@ export function applyPrice(db: Db, gameId: string, p: RegionPrice, now = Date.no
   return { gameId, country: p.country, before, after, newLow };
 }
 
-export function removePrice(db: Db, gameId: string, country: string): PriceChange | undefined {
+/** A history row with this discount marks "no longer sold here". */
+export const DELISTED = -1;
+
+export function removePrice(db: Db, gameId: string, country: string, now = Date.now()): PriceChange | undefined {
   const before = get<PriceRow>(db, 'SELECT * FROM prices WHERE game_id = ? AND country = ?', gameId, country);
   if (!before) return undefined;
   run(db, 'DELETE FROM prices WHERE game_id = ? AND country = ?', gameId, country);
+  // Without this marker the history chart would keep treating the last price as available
+  run(
+    db,
+    'INSERT OR REPLACE INTO price_history (game_id, country, t, currency, price, regular, discount) VALUES (?, ?, ?, ?, 0, 0, ?)',
+    gameId,
+    country,
+    now,
+    before.currency,
+    DELISTED,
+  );
   return { gameId, country, before, newLow: false };
 }
 
@@ -264,11 +277,11 @@ export function refreshSaleFlags(db: Db, ids: string[], now = new Date()) {
   for (const id of ids) {
     const r = get<{ on_sale: number; max_discount: number | null; ends: string | null }>(
       db,
-      `SELECT COUNT(sale) > 0 AS on_sale, MAX(discount) AS max_discount,
-              MIN(CASE WHEN sale IS NOT NULL AND sale_ends_at > ? THEN sale_ends_at END) AS ends
-       FROM prices WHERE game_id = ?`,
-      nowIso,
+      // A sale counts only while it's live: no end date, or an end date still ahead
+      `SELECT COUNT(*) > 0 AS on_sale, MAX(discount) AS max_discount, MIN(sale_ends_at) AS ends
+       FROM prices WHERE game_id = ? AND sale IS NOT NULL AND (sale_ends_at IS NULL OR sale_ends_at > ?)`,
       id,
+      nowIso,
     );
     run(db, 'UPDATE games SET on_sale = ?, max_discount = ?, sale_ends_at = ? WHERE id = ?', r?.on_sale ? 1 : 0, r?.max_discount ?? 0, r?.ends ?? null, id);
   }

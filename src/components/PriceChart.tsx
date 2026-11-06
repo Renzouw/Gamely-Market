@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { PanResponder, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 import type { HistoryPoint } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
@@ -40,6 +40,7 @@ export function PriceChart({ points, currency }: { points: HistoryPoint[]; curre
   const geo = useMemo(() => chartGeometry(points, w), [points, w]);
   const lastIdx = useRef<number | undefined>(undefined);
 
+  // Plain touch-responder handlers: they run on events, never during render
   const pick = (x: number) => {
     if (!geo) return;
     let best = 0;
@@ -50,21 +51,29 @@ export function PriceChart({ points, currency }: { points: HistoryPoint[]; curre
       setActive(best);
     }
   };
-
-  const responder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > Math.abs(g.dy),
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderGrant: (e) => pick(e.nativeEvent.locationX),
-        onPanResponderMove: (e) => pick(e.nativeEvent.locationX),
-        onPanResponderRelease: () => ((lastIdx.current = undefined), setActive(undefined)),
-        onPanResponderTerminate: () => ((lastIdx.current = undefined), setActive(undefined)),
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [geo],
-  );
+  const release = () => {
+    lastIdx.current = undefined;
+    setActive(undefined);
+  };
+  // Only take over the touch once the finger moves sideways, so a vertical
+  // swipe that starts on the chart still scrolls the page.
+  const start = useRef({ x: 0, y: 0 });
+  const touch = {
+    onTouchStart: (e: GestureResponderEvent) => {
+      start.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+    },
+    onStartShouldSetResponder: () => false,
+    onMoveShouldSetResponder: (e: GestureResponderEvent) => {
+      const dx = Math.abs(e.nativeEvent.pageX - start.current.x);
+      const dy = Math.abs(e.nativeEvent.pageY - start.current.y);
+      return dx > 6 && dx > dy;
+    },
+    onResponderTerminationRequest: () => false,
+    onResponderGrant: (e: GestureResponderEvent) => pick(e.nativeEvent.locationX),
+    onResponderMove: (e: GestureResponderEvent) => pick(e.nativeEvent.locationX),
+    onResponderRelease: release,
+    onResponderTerminate: release,
+  };
 
   if (points.length < 2) {
     return (
@@ -86,7 +95,7 @@ export function PriceChart({ points, currency }: { points: HistoryPoint[]; curre
         </Text>
       </View>
       <View
-        {...responder.panHandlers}
+        {...touch}
         onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width)}
         style={{ height: H }}
         accessible
@@ -102,7 +111,7 @@ export function PriceChart({ points, currency }: { points: HistoryPoint[]; curre
             </Defs>
             <Path d={geo.area} fill="url(#fill)" />
             <Path d={geo.line} stroke={c.signalText} strokeWidth={2} fill="none" strokeLinejoin="round" />
-            <Circle cx={geo.xy[geo.lowIdx].x} cy={geo.xy[geo.lowIdx].y} r={4} fill={c.signal} stroke={c.bg} strokeWidth={2} />
+            <Circle cx={geo.xy[geo.lowIdx].x} cy={geo.xy[geo.lowIdx].y} r={4} fill={c.signalText} stroke={c.bg} strokeWidth={2} />
             {active !== undefined ? (
               <>
                 <Line x1={geo.xy[active].x} x2={geo.xy[active].x} y1={0} y2={H} stroke={c.muted} strokeWidth={1} strokeDasharray="3,3" />

@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Platform as RNPlatform, ScrollView, View } from 'react-native';
+import { Platform as RNPlatform, ScrollView, View } from 'react-native';
 import { HOME_CURRENCIES, SWITCH_REGIONS } from '@shared/regions';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Group, Row, Sheet, SheetOption, SwitchRow } from '../../components/ui';
-import { enableAlerts, syncDevice } from '../../services/push';
+import { syncDevice } from '../../services/push';
+import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings, type ThemePref } from '../../state/settings';
 import { hourLabel } from '../../lib/format';
 import { space, useTheme } from '../../theme';
@@ -37,8 +38,7 @@ export default function SettingsScreen() {
       s.set({ alertsEnabled: false });
       return;
     }
-    const ok = await enableAlerts();
-    if (!ok && RNPlatform.OS !== 'web') Linking.openSettings().catch(() => undefined);
+    await turnOnAlerts();
   };
 
   return (
@@ -89,7 +89,7 @@ export default function SettingsScreen() {
       </Group>
 
       <Text variant="footnote" tone="subtle" style={{ textAlign: 'center', marginTop: space.xxxl, paddingHorizontal: space.xxl }}>
-        Gamely isn't affiliated with Nintendo or Valve. Prices can change at any moment, so check the store before you buy.
+        Gamely isn’t affiliated with Nintendo or Valve. Prices can change at any moment, so check the store before you buy.
       </Text>
 
       <Sheet visible={picker === 'home'} onClose={() => setPicker(undefined)} title="Home eShop">

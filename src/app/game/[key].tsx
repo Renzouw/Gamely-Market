@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import type { AlertPrefs, ApiGame } from '@shared/api';
 import { formatMoney, timeLeft } from '@shared/pricing';
@@ -14,7 +14,7 @@ import { PriceSpread } from '../../components/PriceSpread';
 import { Button, Cover, EmptyState, Group, haptic, PlatformLabel, Row, Sheet, Skeleton, SwitchRow } from '../../components/ui';
 import { useFx, useGameDetail, useIsWatched, usePriceSummary, useWatchActions } from '../../hooks/queries';
 import { ago, shortDate } from '../../lib/format';
-import { enableAlerts } from '../../services/push';
+import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
 import { font, GUTTER, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
@@ -39,7 +39,7 @@ export default function GameScreen() {
       <View style={{ flex: 1, backgroundColor: c.bg }}>
         {q.isError ? (
           <View style={{ paddingTop: 120 }}>
-            <EmptyState title="Couldn't open this game" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
+            <EmptyState title="Couldn’t open this game" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
           </View>
         ) : (
           <View>
@@ -84,7 +84,11 @@ export default function GameScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 56 }} refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 56 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}>
         <View>
           <Cover uri={g.image} title={g.title} platform={g.platform} width={width} height={(width * 9) / 16} rounded={0} />
           <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']} style={styles.topShade} pointerEvents="none" />
@@ -143,7 +147,7 @@ export default function GameScreen() {
                   ) : null}
                   {atLowest && headline.sale ? (
                     <Fact tone="signal" icon="ribbon-outline">
-                      Lowest price we've recorded
+                      Lowest price we’ve recorded
                     </Fact>
                   ) : d.lowest ? (
                     <Fact tone="muted" icon="stats-chart-outline">
@@ -180,17 +184,17 @@ export default function GameScreen() {
           <View style={[styles.pad, { marginTop: space.xxxl }]}>
             <Text variant="title">{isSteam ? 'Steam prices by region' : 'Every region'}</Text>
             <Text variant="footnote" tone="subtle" style={{ marginTop: 2, marginBottom: space.lg }}>
-              {isSteam ? "Steam charges your account's country price, so this is for comparison only." : `Converted to ${s.currency}, cheapest first.`}
+              {isSteam ? "Steam charges your account’s country price, so this is for comparison only." : `Converted to ${s.currency}, cheapest first.`}
             </Text>
             <PriceSpread ranked={s.ranked} homeCountry={s.home?.country} currency={s.currency} />
             <View style={{ marginTop: space.lg }}>
               {s.ranked.map((p, i) => (
-                <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} />
+                <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} steam={isSteam} />
               ))}
             </View>
             {d.unmatched.length ? (
               <Text variant="footnote" tone="subtle" style={{ marginTop: space.md }}>
-                We couldn't confirm this exact game in {d.unmatched.map((u) => GROUP_NAMES[u]).join(' or ')}, so we left those prices out rather than risk showing the wrong game.
+                We couldn’t confirm this exact game in {d.unmatched.map((u) => GROUP_NAMES[u]).join(' or ')}, so we left those prices out rather than risk showing the wrong game.
               </Text>
             ) : null}
           </View>
@@ -209,11 +213,11 @@ export default function GameScreen() {
         <Text variant="footnote" tone="subtle" style={[styles.pad, { marginTop: space.xxxl }]}>
           {checked ? `Prices confirmed with ${isSteam ? 'Steam' : 'the Nintendo eShop'} ${ago(checked)}. ` : ''}
           {fx ? `Converted at European Central Bank rates from ${shortDate(fx.asOf)}${headline && fx.sources[headline.current.currency] === 'market' ? ` (${headline.current.currency} uses a market rate)` : ''}. ` : ''}
-          Your bank's rate and fees may differ slightly.
+          Your bank’s rate and fees may differ slightly.
         </Text>
         {d.stale ? (
           <Text variant="footnote" tone="warn" style={[styles.pad, { marginTop: space.sm }]}>
-            Some of these prices haven't been confirmed in over a day. Check the store before buying.
+            Some of these prices haven’t been confirmed in over a day. Check the store before buying.
           </Text>
         ) : null}
         {q.isFetching && placeholder ? <ActivityIndicator style={{ marginTop: space.xl }} color={c.subtle} /> : null}
@@ -222,9 +226,9 @@ export default function GameScreen() {
       <Sheet visible={primer} onClose={closePrimer} title="Get a heads-up?">
         <View style={{ paddingHorizontal: GUTTER, gap: space.md }}>
           <Text variant="body" tone="muted">
-            We'll tell you when {g.title} goes on sale, hits its lowest price, or a sale is about to end. One alert per change, and nothing overnight.
+            We’ll tell you when {g.title} goes on sale, hits its lowest price, or a sale is about to end. One alert per change, and nothing overnight.
           </Text>
-          <Button label="Turn on alerts" onPress={() => (setPrimer(false), void enableAlerts())} />
+          <Button label="Turn on alerts" onPress={() => (setPrimer(false), void turnOnAlerts())} />
           <Button label="Not now" variant="quiet" onPress={closePrimer} />
         </View>
       </Sheet>
@@ -245,18 +249,18 @@ function Fact({ tone, icon, children }: { tone: 'signal' | 'warn' | 'muted'; ico
   );
 }
 
-function RegionRow({ p, best, home, currency, first }: { p: ConvertedRegionPrice; best: boolean; home: boolean; currency: string; first: boolean }) {
+function RegionRow({ p, best, home, currency, first, steam }: { p: ConvertedRegionPrice; best: boolean; home: boolean; currency: string; first: boolean; steam?: boolean }) {
   const { c } = useTheme();
   const r = regionLabel(p.country);
   const note = switchRegion(p.country)?.note;
-  const detail = [home ? 'Your eShop' : undefined, p.current.currency !== currency ? formatMoney(p.current.amount, p.current.currency) : undefined, note].filter(Boolean).join(' · ');
+  const detail = [home ? (steam ? 'Your store' : 'Your eShop') : undefined, p.current.currency !== currency ? formatMoney(p.current.amount, p.current.currency) : undefined, note].filter(Boolean).join(' · ');
   return (
     <View
       accessible
-      accessibilityLabel={`${r.name}, ${formatMoney(p.converted, currency)}${p.discountPercent ? `, ${p.discountPercent}% off` : ''}${best ? ', cheapest' : ''}${home ? ', your eShop' : ''}`}
+      accessibilityLabel={`${r.name}, ${formatMoney(p.converted, currency)}${p.discountPercent ? `, ${p.discountPercent}% off` : ''}${best ? ', cheapest' : ''}${home ? (steam ? ', your store' : ', your eShop') : ''}`}
       style={[styles.region, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}
     >
-      {best ? <View style={[styles.bestRule, { backgroundColor: c.signal }]} /> : null}
+      {best ? <View style={[styles.bestRule, { backgroundColor: c.signalText }]} /> : null}
       <Text style={styles.flag}>{r.flag}</Text>
       <View style={{ flex: 1 }}>
         <Text variant="bodyMedium" numberOfLines={1}>
@@ -287,7 +291,12 @@ function AlertSettings({ game, target, alerts, currency, suggested }: { game: Ap
   const { save } = useWatchActions();
   const alertsEnabled = useSettings((s) => s.alertsEnabled);
   const [text, setText] = useState(target !== undefined ? String(target) : '');
-  useEffect(() => setText(target !== undefined ? String(target) : ''), [target]);
+  // Follow the saved target when it changes elsewhere (e.g. "Remove target price")
+  const [seenTarget, setSeenTarget] = useState(target);
+  if (target !== seenTarget) {
+    setSeenTarget(target);
+    setText(target !== undefined ? String(target) : '');
+  }
 
   const set = (patch: Partial<AlertPrefs>) => save.mutate({ game, input: { alerts: patch } });
   const commitTarget = (v?: number) => save.mutate({ game, input: { target: v === undefined ? null : Math.round(v * 100) / 100 } });
@@ -309,8 +318,11 @@ function AlertSettings({ game, target, alerts, currency, suggested }: { game: Ap
                 onChangeText={setText}
                 onEndEditing={() => {
                   const v = parseFloat(text.replace(',', '.'));
-                  commitTarget(Number.isFinite(v) && v > 0 ? v : undefined);
+                  const next = Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
+                  if (next === target) return; // nothing changed, nothing to save
+                  commitTarget(next);
                 }}
+                maxFontSizeMultiplier={1.3}
                 placeholder={suggested ? (suggested * 0.75).toFixed(currency === 'JPY' ? 0 : 2) : 'Price'}
                 placeholderTextColor={c.subtle}
                 keyboardType="decimal-pad"

@@ -54,6 +54,10 @@ export const config = {
   staleAfterMs: num(env.STALE_AFTER_MIN, 36 * 60) * MIN,
   /** Game pages refresh on demand when their prices are older than this */
   refreshOnViewAfterMs: num(env.REFRESH_ON_VIEW_MIN, 180) * MIN,
+  /** Only trust X-Forwarded-For when a proxy you run sets it (e.g. Fly, Render) */
+  trustProxy: env.TRUST_PROXY === '1',
+  /** Cap per device, so one install can't turn the 10-minute refresh into a full sweep */
+  maxWatchesPerDevice: num(env.MAX_WATCHES, 300),
 };
 
 export const americasEnabled = () => Boolean(config.naSearch.appId && config.naSearch.apiKey);

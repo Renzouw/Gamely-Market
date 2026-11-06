@@ -1,4 +1,4 @@
-import { STEAM_REGIONS, SWITCH_REGIONS } from '@shared/regions';
+import { STEAM_REGIONS, SWITCH_REGIONS, steamStoreCountry } from '@shared/regions';
 import { americasEnabled } from '../config';
 import { all, get, run, type Db } from '../db';
 import { fetchCountryPrices } from '../sources/nintendo/prices';
@@ -33,36 +33,49 @@ export async function refreshSwitchPrices(db: Db, gameIds: string[], countries =
   let failures = 0;
   let ok = 0;
 
-  for (const region of SWITCH_REGIONS.filter((r) => countries.includes(r.code))) {
-    const grp = region.group as Group;
+  const reverseByGroup = new Map<Group, Map<string, string>>();
+  for (const grp of ['americas', 'europe', 'japan'] as Group[]) {
     const reverse = new Map<string, string>();
     nsuids.forEach((m, gameId) => m[grp] && reverse.set(m[grp]!, gameId));
-    if (!reverse.size) continue;
-    try {
-      const res = await fetchCountryPrices(region.code, [...reverse.keys()]);
-      const now = Date.now();
-      tx(db, () => {
-        res.prices.forEach((price, nsuid) => {
-          const gameId = reverse.get(nsuid);
-          if (!gameId) return;
-          touched.add(gameId);
-          const c = applyPrice(db, gameId, price, now);
-          if (c) changes.push(c);
-        });
-        res.gone.forEach((nsuid) => {
-          const gameId = reverse.get(nsuid);
-          if (!gameId) return;
-          touched.add(gameId);
-          const c = removePrice(db, gameId, region.code);
-          if (c) changes.push(c);
-        });
-      });
-      ok++;
-    } catch (e) {
-      failures++;
-      sourceError(db, 'nintendo-prices', new Error(`${region.code}: ${e instanceof Error ? e.message : e}`));
-    }
+    reverseByGroup.set(grp, reverse);
   }
+  // Fetch every country at once (the per-store queue keeps it polite), then
+  // apply everything in one transaction so readers never see half a refresh.
+  const regions = SWITCH_REGIONS.filter((r) => countries.includes(r.code) && reverseByGroup.get(r.group as Group)!.size);
+  const results = await Promise.all(
+    regions.map((region) =>
+      fetchCountryPrices(region.code, [...reverseByGroup.get(region.group as Group)!.keys()]).then(
+        (res) => ({ region, res }),
+        (e: unknown) => ({ region, error: e }),
+      ),
+    ),
+  );
+  const now = Date.now();
+  tx(db, () => {
+    for (const r of results) {
+      if ('error' in r) {
+        failures++;
+        sourceError(db, 'nintendo-prices', new Error(`${r.region.code}: ${r.error instanceof Error ? r.error.message : r.error}`));
+        continue;
+      }
+      ok++;
+      const reverse = reverseByGroup.get(r.region.group as Group)!;
+      r.res.prices.forEach((price, nsuid) => {
+        const gameId = reverse.get(nsuid);
+        if (!gameId) return;
+        touched.add(gameId);
+        const c = applyPrice(db, gameId, price, now);
+        if (c) changes.push(c);
+      });
+      r.res.gone.forEach((nsuid) => {
+        const gameId = reverse.get(nsuid);
+        if (!gameId) return;
+        touched.add(gameId);
+        const c = removePrice(db, gameId, r.region.code, now);
+        if (c) changes.push(c);
+      });
+    }
+  });
   if (ok) sourceOk(db, 'nintendo-prices', touched.size);
   refreshSaleFlags(db, [...touched]);
   if (failures && !ok) throw new Error('Nintendo price endpoint unreachable');
@@ -90,8 +103,10 @@ export async function steamCurrency(db: Db, country: string): Promise<string> {
 
 export function steamCountriesInUse(db: Db): string[] {
   const set = new Set(['US', 'GB', 'DE', 'CA', 'AU', 'JP', 'BR', 'MX', 'AR', 'TR', 'IN', 'PL']);
-  for (const r of all<{ steam_regions: string }>(db, 'SELECT steam_regions FROM devices')) {
+  for (const r of all<{ steam_regions: string; home_region: string }>(db, 'SELECT steam_regions, home_region FROM devices')) {
     for (const c of JSON.parse(r.steam_regions) as string[]) set.add(c);
+    // Alerts and deals use the store this person buys in, so it must always be priced
+    set.add(steamStoreCountry(r.home_region).code);
   }
   return [...set].filter((c) => STEAM_REGIONS.some((r) => r.code === c));
 }
@@ -141,7 +156,19 @@ export async function refreshSteamPrices(db: Db, gameIds: string[], countries = 
   return changes;
 }
 
-/** Re-price any mix of games, routing each to its store. */
+/**
+ * One price refresh at a time. Alert planning rebuilds "before" from the
+ * database, so two refreshes interleaving would each see the other's
+ * changes as already there and miss alerts.
+ */
+let lock: Promise<unknown> = Promise.resolve();
+export function withPriceLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = lock.then(fn, fn);
+  lock = run.catch(() => undefined);
+  return run;
+}
+
+/** Re-price any mix of games, routing each to its store. Call inside withPriceLock. */
 export async function refreshGames(db: Db, gameIds: string[]): Promise<PriceChange[]> {
   const steam = gameIds.filter((id) => id.startsWith('steam:'));
   const sw = gameIds.filter((id) => id.startsWith('sw:'));

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { memo, useEffect, useRef, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -31,7 +31,7 @@ export function haptic(kind: 'select' | 'success' | 'light' = 'select') {
 
 /** Pressable that settles slightly under the finger, like native controls do. */
 export function Tap({ style, children, scaleTo = 0.975, ...rest }: PressableProps & { style?: StyleProp<ViewStyle>; children: ReactNode; scaleTo?: number }) {
-  const scale = useRef(new Animated.Value(1)).current;
+  const [scale] = useState(() => new Animated.Value(1));
   const to = (v: number) => Animated.spring(scale, { toValue: v, useNativeDriver: RNPlatform.OS !== 'web', speed: 40, bounciness: 0 }).start();
   return (
     <Pressable {...rest} onPressIn={(e) => (to(scaleTo), rest.onPressIn?.(e))} onPressOut={(e) => (to(1), rest.onPressOut?.(e))}>
@@ -165,7 +165,7 @@ export const Cover = memo(function Cover({
 
 export function Skeleton({ height, width, style, rounded = radius.sm }: { height: number; width?: number | `${number}%`; style?: StyleProp<ViewStyle>; rounded?: number }) {
   const { c } = useTheme();
-  const pulse = useRef(new Animated.Value(0.55)).current;
+  const [pulse] = useState(() => new Animated.Value(0.55));
   useEffect(() => {
     const native = RNPlatform.OS !== 'web';
     const loop = Animated.loop(

@@ -13,7 +13,11 @@ interface Due {
   expires_at: number | null;
   push_token: string | null;
   alerts_enabled: number;
+  attempts: number;
 }
+
+/** Retries for messages Expo never received, with growing gaps: 1, 2, 4, 8, 16 minutes. */
+export const MAX_ATTEMPTS = 6;
 
 /** Four or more alerts for one person at once become a single summary. */
 export const DIGEST_AT = 4;
@@ -58,10 +62,10 @@ export function buildMessages(due: Due[]): { message: PushMessage; ids: number[]
   return out;
 }
 
-export async function dispatch(db: Db, now = Date.now()): Promise<{ sent: number; skipped: number; failed: number }> {
+export async function dispatch(db: Db, now = Date.now()): Promise<{ sent: number; skipped: number; failed: number; retried?: number }> {
   const due = all<Due>(
     db,
-    `SELECT n.id, n.device_id, n.game_id, n.kind, n.title, n.body, n.data, n.expires_at, d.push_token, d.alerts_enabled
+    `SELECT n.id, n.device_id, n.game_id, n.kind, n.title, n.body, n.data, n.expires_at, n.attempts, d.push_token, d.alerts_enabled
      FROM notifications n JOIN devices d ON d.id = n.device_id
      WHERE n.status = 'pending' AND n.send_after <= ? ORDER BY n.created_at LIMIT 1000`,
     now,
@@ -77,8 +81,10 @@ export async function dispatch(db: Db, now = Date.now()): Promise<{ sent: number
       skipped++;
     } else deliverable.push(n);
   }
-  if (!deliverable.length) return { sent: 0, skipped, failed: 0 };
+  if (!deliverable.length) return { sent: 0, skipped, failed: 0, retried: 0 };
 
+  const attemptsById = new Map(deliverable.map((n) => [n.id, n.attempts ?? 0]));
+  let retried = 0;
   const batches = buildMessages(deliverable);
   const tickets = await sendPush(batches.map((b) => b.message));
   let sent = 0;
@@ -90,6 +96,11 @@ export async function dispatch(db: Db, now = Date.now()): Promise<{ sent: number
         if (t.status === 'ok') {
           run(db, "UPDATE notifications SET status = 'sent', ticket_id = ? WHERE id = ?", t.id, id);
           sent++;
+        } else if (t.transport && (attemptsById.get(id) ?? 0) + 1 < MAX_ATTEMPTS) {
+          // Expo never got it: try again later instead of dropping the alert
+          const attempts = (attemptsById.get(id) ?? 0) + 1;
+          run(db, 'UPDATE notifications SET attempts = ?, send_after = ?, error = ? WHERE id = ?', attempts, now + 60_000 * 2 ** (attempts - 1), t.message, id);
+          retried++;
         } else {
           run(db, "UPDATE notifications SET status = 'failed', error = ? WHERE id = ?", t.message, id);
           failed++;
@@ -100,7 +111,7 @@ export async function dispatch(db: Db, now = Date.now()): Promise<{ sent: number
       }
     });
   });
-  return { sent, skipped, failed };
+  return { sent, skipped, failed, retried };
 }
 
 /** Expo hands out tickets first and delivery receipts later. Check them and drop dead tokens. */

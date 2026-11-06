@@ -1,22 +1,34 @@
 import { config } from './config';
-import { all, get, type Db } from './db';
-import { queueAlertsForChanges, queueEndingAlerts } from './alerts/run';
+import { all, get, run, type Db } from './db';
+import { queueEndingAlerts, refreshAndAlert } from './alerts/run';
 import { discoverSteamDeals, matchJapan, syncEuCatalog, syncUsCatalog } from './ingest/catalog';
 import { invalidateFx, syncFx } from './ingest/fx';
-import { refreshGames } from './ingest/prices';
 import { checkReceipts, dispatch } from './push/dispatch';
 import { detectSaleEvents, queueBigDeals } from './events/run';
 import { chunk } from './sources/http';
-import type { PriceChange } from './store';
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
+/** Keep the tables that grow forever in check. Alerts older than 60 days aren't shown anywhere. */
+export function prune(db: Db, now = Date.now()) {
+  const cutoff = now - 60 * 24 * 3600_000;
+  run(db, 'DELETE FROM notifications WHERE created_at < ?', cutoff);
+  run(db, 'DELETE FROM deal_seen WHERE at < ?', cutoff);
+  run(db, 'DELETE FROM sale_counts WHERE t < ?', now - 30 * 24 * 3600_000);
+}
+
 export function createJobs(db: Db, onPricesChanged: () => void) {
-  const afterRefresh = (changes: PriceChange[]) => {
-    if (!changes.length) return;
-    const queued = queueAlertsForChanges(db, changes);
-    onPricesChanged();
-    log(`prices: ${changes.length} changes, ${queued} alerts queued`);
+  /**
+   * Re-price in chunks. Each chunk holds the price lock only briefly, so the
+   * 10-minute watched-games refresh never waits long behind the daily sweep.
+   */
+  const refresh = async (ids: string[], size = 300) => {
+    for (const part of chunk(ids, size)) {
+      const { changes, queued } = await refreshAndAlert(db, part);
+      if (!changes.length) continue;
+      onPricesChanged();
+      log(`prices: ${changes.length} changes, ${queued} alerts queued`);
+    }
   };
 
   /** Watched games and sales about to start or end: checked most often. */
@@ -28,7 +40,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
        UNION SELECT id FROM games WHERE on_sale = 1 AND sale_ends_at IS NOT NULL AND sale_ends_at <= ?`,
       soon,
     ).map((r) => r.id);
-    for (const part of chunk(ids, 500)) afterRefresh(await refreshGames(db, part));
+    await refresh(ids);
   }
 
   /** New sales: Nintendo's catalogs flag discounted games, Steam lists its specials. */
@@ -39,17 +51,16 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
       (await syncUsCatalog(db, { platform, onSaleOnly: true, maxPages: 60 })).forEach((id) => found.add(id));
     }
     (await discoverSteamDeals(db)).forEach((id) => found.add(id));
-    // The discovery pass just recorded fresh store-wide counts; check for a big sale right away
-    detectSaleEvents(db);
     // Only re-price what we haven't already got a sale price for
     const fresh = [...found].filter((id) => !get<{ n: number }>(db, 'SELECT 1 AS n FROM games WHERE id = ? AND on_sale = 1', id));
-    for (const part of chunk(fresh, 500)) afterRefresh(await refreshGames(db, part));
+    await refresh(fresh);
+    // Fresh store-wide counts and fresh prices: check for a big sale now, so its "top picks" are current
+    detectSaleEvents(db);
   }
 
   /** Everything currently discounted, so ended sales drop off promptly. */
   async function sales() {
-    const ids = all<{ id: string }>(db, 'SELECT id FROM games WHERE on_sale = 1').map((r) => r.id);
-    for (const part of chunk(ids, 500)) afterRefresh(await refreshGames(db, part));
+    await refresh(all<{ id: string }>(db, 'SELECT id FROM games WHERE on_sale = 1').map((r) => r.id));
   }
 
   async function catalog() {
@@ -62,8 +73,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
 
   /** Every game in every region, once a day. Catches sales the catalogs haven't flagged yet. */
   async function sweep() {
-    const ids = all<{ id: string }>(db, 'SELECT id FROM games ORDER BY on_sale DESC, COALESCE(rank, 1e9)').map((r) => r.id);
-    for (const part of chunk(ids, 500)) afterRefresh(await refreshGames(db, part));
+    await refresh(all<{ id: string }>(db, 'SELECT id FROM games ORDER BY on_sale DESC, COALESCE(rank, 1e9)').map((r) => r.id), 200);
   }
 
   const isEmpty = () => !get<{ n: number }>(db, 'SELECT 1 AS n FROM games LIMIT 1');
@@ -79,6 +89,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     { name: 'big-deals', every: config.schedule.bigDeals, atStart: false, run: async () => void queueBigDeals(db) },
     { name: 'ending', every: config.schedule.endingSoon, atStart: false, run: async () => void queueEndingAlerts(db) },
     { name: 'dispatch', every: config.schedule.dispatch, atStart: false, run: async () => void (await dispatch(db)) },
+    { name: 'prune', every: 24 * 3600_000, atStart: false, run: async () => void prune(db) },
     { name: 'receipts', every: config.schedule.receipts, atStart: false, run: () => checkReceipts(db) },
   ];
 }

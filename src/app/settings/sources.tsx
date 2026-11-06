@@ -35,7 +35,7 @@ export default function SourcesScreen() {
             />
           ))
         ) : (
-          <Row first label={status.isError ? "Can't reach the Gamely server" : 'Loading…'} />
+          <Row first label={status.isError ? "Can’t reach the Gamely server" : 'Loading…'} />
         )}
         {status.data && !status.data.americasEnabled ? (
           <Row label="Nintendo Americas" detail="Not connected yet. US, Canada, Mexico and Latin American eShops are left out rather than guessed." icon={<Ionicons name="remove-circle" size={20} color={c.subtle} />} />
@@ -44,7 +44,7 @@ export default function SourcesScreen() {
 
       <Group
         title="Exchange rates"
-        footer={market.length ? `The European Central Bank doesn't publish ${market.join(', ')}, so those use a market rate.` : undefined}
+        footer={market.length ? `The European Central Bank doesn’t publish ${market.join(', ')}, so those use a market rate.` : undefined}
       >
         <Row first label="European Central Bank" value={fx ? shortDate(fx.asOf) : '–'} detail="Daily reference rates" />
       </Group>

@@ -46,7 +46,7 @@ export default function RegionsScreen() {
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 64 }}>
       <Text variant="callout" tone="muted" style={{ paddingHorizontal: space.lg + space.xs, marginTop: space.md }}>
-        Only switch on shops you can actually pay in. "Best price" and every alert only look at the regions ticked here.
+        Only switch on shops you can actually pay in. “Best price” and every alert only look at the regions ticked here.
       </Text>
 
       {GROUPS.map((g) => {
@@ -54,7 +54,7 @@ export default function RegionsScreen() {
         const allOn = regions.every((r) => s.switchRegions.includes(r.code));
         const off = g.id === 'americas' && americasOff;
         return (
-          <Group key={g.id} title={`Switch · ${g.label}`} footer={off ? "Prices for the Americas aren't available from our server yet, so these won't show for now." : undefined}>
+          <Group key={g.id} title={`Switch · ${g.label}`} footer={off ? "Prices for the Americas aren’t available from our server yet, so these won’t show for now." : undefined}>
             <CheckRow
               first
               label={allOn ? 'Deselect all' : 'Select all'}
@@ -79,7 +79,7 @@ export default function RegionsScreen() {
         );
       })}
 
-      <Group title="Steam regions to compare" footer="Steam sells at your account country's price. Other regions are shown for comparison on each game page.">
+      <Group title="Steam regions to compare" footer="Steam sells at your account country’s price. Other regions are shown for comparison on each game page.">
         {STEAM_REGIONS.map((r, i) => (
           <CheckRow key={r.code} first={i === 0} label={`${r.flag}  ${r.name}`} detail={r.currency} checked={s.steamRegions.includes(r.code)} onPress={() => s.toggleSteamRegion(r.code)} />
         ))}

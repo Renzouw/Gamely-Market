@@ -15,7 +15,10 @@ export interface PushMessage {
   priority?: 'default' | 'high';
 }
 
-export type PushTicket = { status: 'ok'; id: string } | { status: 'error'; message: string; details?: { error?: string } };
+export type PushTicket =
+  | { status: 'ok'; id: string }
+  /** `transport` means Expo never got the message (network, 5xx): safe to retry */
+  | { status: 'error'; message: string; details?: { error?: string }; transport?: boolean };
 
 export type PushReceipt = { status: 'ok' } | { status: 'error'; message: string; details?: { error?: string } };
 
@@ -34,7 +37,7 @@ export async function sendPush(messages: PushMessage[]): Promise<PushTicket[]> {
       batch.forEach((_, i) => tickets.push(data[i] ?? { status: 'error', message: res.errors?.[0]?.message ?? 'No ticket returned' }));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      batch.forEach(() => tickets.push({ status: 'error', message }));
+      batch.forEach(() => tickets.push({ status: 'error', message, transport: true }));
     }
   }
   return tickets;

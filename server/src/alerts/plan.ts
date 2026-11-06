@@ -39,10 +39,15 @@ export function regionsFor(d: DeviceCtx, platform: Platform): string[] {
   return d.switchRegions.includes(d.homeRegion) ? d.switchRegions : [...d.switchRegions, d.homeRegion];
 }
 
-function best(rows: PriceRow[], d: DeviceCtx, platform: Platform, fx?: FxRates) {
+function summary(rows: PriceRow[], d: DeviceCtx, platform: Platform, fx?: FxRates, now = Date.now()) {
   const regions = new Set(regionsFor(d, platform));
-  const mine = rows.filter((r) => regions.has(r.country)).map(rowToPrice);
-  return summarize(mine, { homeCurrency: d.currency, homeRegion: platform === 'steam' ? steamStoreCountry(d.homeRegion).code : d.homeRegion, fx }).best;
+  // Pass `now` explicitly: a point-free .map(rowToPrice) would hand it the array index
+  const mine = rows.filter((r) => regions.has(r.country)).map((r) => rowToPrice(r, now));
+  return summarize(mine, { homeCurrency: d.currency, homeRegion: platform === 'steam' ? steamStoreCountry(d.homeRegion).code : d.homeRegion, fx });
+}
+
+function best(rows: PriceRow[], d: DeviceCtx, platform: Platform, fx?: FxRates, now = Date.now()) {
+  return summary(rows, d, platform, fx, now).best;
 }
 
 const where = (country: string) => {
@@ -51,73 +56,101 @@ const where = (country: string) => {
 };
 
 /**
- * What to tell one person about one watched game after a price refresh.
- * Returns at most one alert, the most important one, so a single price
- * change never produces a pile of notifications.
+ * What to tell one person about one watched game after a price refresh,
+ * most important first. The caller sends the first one that isn't a
+ * duplicate, so a single price change never produces a pile of alerts,
+ * and a repeat of an old alert doesn't hide a new, different one.
  */
-export function planAlerts(input: {
+export function planAlertCandidates(input: {
   device: DeviceCtx;
   watch: WatchCtx;
   before: PriceRow[];
   after: PriceRow[];
   newLowCountries: string[];
   fx?: FxRates;
-}): PlannedAlert | undefined {
+  now?: number;
+}): PlannedAlert[] {
   const { device: d, watch: w, fx } = input;
-  const regions = new Set(regionsFor(d, w.platform));
-  const b = best(input.before, d, w.platform, fx);
-  const a = best(input.after, d, w.platform, fx);
-  if (!a || a.converted === undefined) return undefined;
+  const now = input.now ?? Date.now();
+  const beforeSummary = summary(input.before, d, w.platform, fx, now);
+  const afterSummary = summary(input.after, d, w.platform, fx, now);
+  const b = beforeSummary.best;
+  const a = afterSummary.best;
+  if (!a || a.converted === undefined) return [];
 
   const price = formatMoney(a.converted, d.currency);
   const local = a.current.currency !== d.currency ? ` (${formatMoney(a.current.amount, a.current.currency)})` : '';
   const ends = a.saleEndsAt ? Date.parse(a.saleEndsAt) : undefined;
-  const left = timeLeft(a.saleEndsAt);
+  const left = timeLeft(a.saleEndsAt, now);
   const endsText = left ? ` Ends in ${left}.` : '';
   const k = `${d.id}:${w.gameId}`;
-  const priceKey = a.converted.toFixed(2);
+  const day = new Date(now).toISOString().slice(0, 10);
+  // Identifies this particular sale, so the same alert can fire again for a later sale
+  const saleTag = a.saleEndsAt ?? day;
 
-  const hadSale = input.before.some((r) => regions.has(r.country) && r.sale !== null);
-  const hasSale = input.after.some((r) => regions.has(r.country) && r.sale !== null);
-  const lowHere = input.newLowCountries.find((c) => c === a.country);
+  // Sales that have already ended don't count, even before the next refresh confirms it
+  const hadSale = beforeSummary.ranked.some((p) => p.sale);
+  const hasSale = afterSummary.ranked.some((p) => p.sale);
+  const lowHere = input.newLowCountries.includes(a.country);
+  const out: PlannedAlert[] = [];
 
   if (w.alerts.target && w.target !== undefined && a.converted <= w.target + 0.005 && (b?.converted === undefined || b.converted > w.target + 0.005)) {
-    return {
+    out.push({
       kind: 'target',
       title: `${w.title} hit your price`,
       body: `${price}${local} in ${where(a.country)}. Your target was ${formatMoney(w.target, d.currency)}.${endsText}`,
-      dedupeKey: `target:${k}:${w.target}:${priceKey}`,
+      dedupeKey: `target:${k}:${w.target}:${a.converted.toFixed(2)}:${saleTag}`,
       expiresAt: ends,
-    };
+    });
   }
   if (w.alerts.low && lowHere && a.sale) {
-    return {
+    out.push({
       kind: 'low',
       title: `${w.title}: lowest price yet`,
-      body: `${price}${local} in ${where(a.country)}, the lowest we've recorded there.${endsText}`,
+      body: `${price}${local} in ${where(a.country)}, the lowest we’ve recorded there.${endsText}`,
       dedupeKey: `low:${k}:${a.country}:${a.current.amount}`,
       expiresAt: ends,
-    };
+    });
   }
   if (w.alerts.sale && hasSale && !hadSale && a.sale) {
-    return {
+    out.push({
       kind: 'sale',
       title: `${w.title} is on sale`,
       body: `${a.discountPercent}% off: ${price}${local} in ${where(a.country)}.${endsText}`,
-      dedupeKey: `sale:${k}:${a.saleEndsAt ?? new Date().toISOString().slice(0, 10)}`,
+      dedupeKey: `sale:${k}:${saleTag}`,
       expiresAt: ends,
-    };
+    });
+  }
+  // Your own eShop started a sale, even though another region is still cheaper.
+  // Most people would rather buy at home, so this is worth a heads-up too.
+  const home = afterSummary.home;
+  const homeBefore = beforeSummary.ranked.find((p) => p.country === home?.country);
+  if (w.alerts.sale && home?.sale && !homeBefore?.sale && home.converted !== undefined && home.country !== a.country) {
+    const homeLocal = home.current.currency !== d.currency ? ` (${formatMoney(home.current.amount, home.current.currency)})` : '';
+    const homeLeft = timeLeft(home.saleEndsAt, now);
+    out.push({
+      kind: 'sale',
+      title: `${w.title} is on sale in your eShop`,
+      body: `${home.discountPercent}% off: ${formatMoney(home.converted, d.currency)}${homeLocal}. Still cheaper in ${where(a.country)} at ${price}.${homeLeft ? ` Ends in ${homeLeft}.` : ''}`,
+      dedupeKey: `sale:${k}:home:${home.saleEndsAt ?? day}`,
+      expiresAt: home.saleEndsAt ? Date.parse(home.saleEndsAt) : undefined,
+    });
   }
   if (w.alerts.drop && b?.converted !== undefined && a.converted < b.converted * 0.99) {
-    return {
+    out.push({
       kind: 'drop',
       title: `${w.title} dropped to ${price}`,
       body: `Down from ${formatMoney(b.converted, d.currency)}. Cheapest in ${where(a.country)}${local}.${endsText}`,
-      dedupeKey: `drop:${k}:${priceKey}`,
+      dedupeKey: `drop:${k}:${a.converted.toFixed(2)}:${saleTag}`,
       expiresAt: ends,
-    };
+    });
   }
-  return undefined;
+  return out;
+}
+
+/** The single most important alert, if any. */
+export function planAlerts(input: Parameters<typeof planAlertCandidates>[0]): PlannedAlert | undefined {
+  return planAlertCandidates(input)[0];
 }
 
 /** A sale you're watching ends within 24 hours. One reminder per sale. */
@@ -125,7 +158,7 @@ export function planEnding(input: { device: DeviceCtx; watch: WatchCtx; rows: Pr
   const { device: d, watch: w } = input;
   if (!w.alerts.ending) return undefined;
   const now = input.now ?? Date.now();
-  const a = best(input.rows, d, w.platform, input.fx);
+  const a = best(input.rows, d, w.platform, input.fx, now);
   if (!a?.sale || !a.saleEndsAt || a.converted === undefined) return undefined;
   const ends = Date.parse(a.saleEndsAt);
   if (!(ends > now && ends - now <= 24 * 3600_000)) return undefined;
@@ -133,7 +166,7 @@ export function planEnding(input: { device: DeviceCtx; watch: WatchCtx; rows: Pr
     kind: 'ending',
     title: `Last chance: ${w.title}`,
     body: `${a.discountPercent}% off ends in ${timeLeft(a.saleEndsAt, now)}. ${formatMoney(a.converted, d.currency)} in ${where(a.country)}.`,
-    dedupeKey: `ending:${d.id}:${w.gameId}:${a.country}:${a.saleEndsAt}`,
+    dedupeKey: `ending:${d.id}:${w.gameId}:${a.saleEndsAt}`,
     expiresAt: ends,
   };
 }

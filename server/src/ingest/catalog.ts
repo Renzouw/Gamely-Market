@@ -6,7 +6,7 @@ import { searchEu } from '../sources/nintendo/catalogEu';
 import { searchUs } from '../sources/nintendo/catalogUs';
 import { findJapanNsuid } from '../sources/nintendo/catalogJp';
 import { listSteamDeals } from '../sources/steam';
-import { all } from '../db';
+import { all, run } from '../db';
 import { recordSaleCount } from '../events/run';
 import { attachNsuid, gameIdForNsuid, matchCandidates, sourceError, sourceOk, tx, upsertGame, type Group } from '../store';
 import { pickMatch } from './match';
@@ -97,29 +97,42 @@ export async function syncUsCatalog(db: Db, o: SyncOpts): Promise<string[]> {
   return ids;
 }
 
-/** Japan lists titles in Japanese, so we only link games whose product code matches. */
-export async function matchJapan(db: Db, limit = 150): Promise<number> {
+/**
+ * Japan lists titles in Japanese, so we only link games whose product code
+ * matches. Misses are remembered for a week, so games with no Japanese
+ * release don't hog every run, and one failed lookup doesn't stop the rest.
+ */
+export async function matchJapan(db: Db, limit = 150, now = Date.now()): Promise<number> {
   const rows = all<{ id: string; product_code: string }>(
     db,
     `SELECT g.id, g.product_code FROM games g
      WHERE g.platform != 'steam' AND g.product_code IS NOT NULL
+       AND (g.jp_checked_at IS NULL OR g.jp_checked_at < ?)
        AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.game_id = g.id AND i.grp = 'japan')
-     ORDER BY g.on_sale DESC, COALESCE(g.rank, 1e9) LIMIT ?`,
+     ORDER BY g.jp_checked_at IS NOT NULL, g.on_sale DESC, COALESCE(g.rank, 1e9) LIMIT ?`,
+    now - 7 * 86400_000,
     limit,
   );
   let linked = 0;
-  try {
-    for (const r of rows) {
+  let errors = 0;
+  for (const r of rows) {
+    try {
       const nsuid = await findJapanNsuid(r.product_code);
       if (nsuid && !gameIdForNsuid(db, 'japan', nsuid)) {
         attachNsuid(db, 'japan', nsuid, r.id, 'product_code');
         linked++;
       }
+      run(db, 'UPDATE games SET jp_checked_at = ? WHERE id = ?', now, r.id);
+    } catch (e) {
+      errors++;
+      if (errors >= 5) {
+        // The service is clearly down; try again next run
+        sourceError(db, 'nintendo-jp-catalog', e);
+        return linked;
+      }
     }
-    sourceOk(db, 'nintendo-jp-catalog', linked);
-  } catch (e) {
-    sourceError(db, 'nintendo-jp-catalog', e);
   }
+  sourceOk(db, 'nintendo-jp-catalog', linked);
   return linked;
 }
 

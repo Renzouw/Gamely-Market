@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import type { ApiListItem, DealSort } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
@@ -12,7 +12,7 @@ import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
 import { useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
-import { enableAlerts } from '../../services/push';
+import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
 import { ago } from '../../lib/format';
 import { GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
@@ -38,10 +38,14 @@ export default function DealsScreen() {
   const { c } = useTheme();
   const prefs = usePrefs();
   const params = useLocalSearchParams<{ platform?: string }>();
-  const [platform, setPlatform] = useState<Platform>('switch2');
-  useEffect(() => {
-    if (params.platform === 'switch2' || params.platform === 'switch' || params.platform === 'steam') setPlatform(params.platform);
-  }, [params.platform]);
+  const paramPlatform = PLATFORMS.find((p) => p.value === params.platform)?.value;
+  const [platform, setPlatform] = useState<Platform>(paramPlatform ?? 'switch2');
+  // A notification tap can ask for a tab; follow it when the param changes
+  const [seenParam, setSeenParam] = useState(params.platform);
+  if (params.platform !== seenParam) {
+    setSeenParam(params.platform);
+    if (paramPlatform) setPlatform(paramPlatform);
+  }
   const events = useSaleEvents().data ?? [];
   const liveEvent = events.find((e) => (platform === 'steam' ? e.platform === 'steam' : e.platform !== 'steam'));
   const alertsEnabled = useSettings((x) => x.alertsEnabled);
@@ -109,7 +113,7 @@ export default function DealsScreen() {
               <Ionicons name="close" size={18} color={c.subtle} />
             </Pressable>
           </View>
-          <Button label="Turn on alerts" onPress={() => void enableAlerts()} style={{ marginTop: space.md, height: 44 }} />
+          <Button label="Turn on alerts" onPress={() => void turnOnAlerts()} style={{ marginTop: space.md, height: 44 }} />
         </View>
       ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
@@ -140,7 +144,7 @@ export default function DealsScreen() {
           q.isPending ? (
             <RowSkeleton />
           ) : q.isError ? (
-            <EmptyState title="Couldn't load deals" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
+            <EmptyState title="Couldn’t load deals" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
           ) : big || cheap || abroad ? (
             <EmptyState
               title="Nothing matches"

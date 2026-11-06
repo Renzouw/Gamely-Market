@@ -113,6 +113,21 @@ describe('alert planning', () => {
     expect(a?.kind).toBe('drop');
   });
 
+  it('tells you when your own eShop starts a sale, even if another region is cheaper', () => {
+    const b = [p('GB', 'GBP', 40), p('ZA', 'ZAR', 360)]; // home $50, ZA $20
+    const a = [p('GB', 'GBP', 40, 28, '2099-01-01T00:00:00Z'), p('ZA', 'ZAR', 360)]; // home $35
+    const alert = planAlerts({ device, watch: watch(), before: b, after: a, newLowCountries: [], fx });
+    expect(alert?.kind).toBe('sale');
+    expect(alert?.title).toBe('Zelda is on sale in your eShop');
+    expect(alert?.body).toContain('Still cheaper in 🇿🇦 South Africa');
+  });
+
+  it('treats a sale whose end time has passed as over', () => {
+    const b = [p('GB', 'GBP', 40), p('DE', 'EUR', 45)];
+    const a = [p('GB', 'GBP', 40, 20, '2020-01-01T00:00:00Z'), p('DE', 'EUR', 45)];
+    expect(planAlerts({ device, watch: watch(), before: b, after: a, newLowCountries: [], fx })).toBeUndefined();
+  });
+
   it('only considers the Steam store country you buy in', () => {
     const steamDevice = { ...device, homeRegion: 'US' };
     const w = watch({ platform: 'steam' });
@@ -182,7 +197,7 @@ describe('exchange rates', () => {
 });
 
 describe('push batching', () => {
-  const n = (id: number, device: string) => ({ id, device_id: device, game_id: `g${id}`, kind: 'sale', title: `Game ${id} is on sale`, body: 'b', data: '{}', expires_at: null, push_token: `ExponentPushToken[${device}]`, alerts_enabled: 1 });
+  const n = (id: number, device: string) => ({ id, device_id: device, game_id: `g${id}`, kind: 'sale', title: `Game ${id} is on sale`, body: 'b', data: '{}', expires_at: null, push_token: `ExponentPushToken[${device}]`, alerts_enabled: 1, attempts: 0 });
   it('sends individual alerts when there are only a few', () => {
     expect(buildMessages([n(1, 'a'), n(2, 'a')])).toHaveLength(2);
   });

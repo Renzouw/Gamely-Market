@@ -6,9 +6,10 @@ type Icon = keyof typeof Ionicons.glyphMap;
 
 export default function TabsLayout() {
   const { c } = useTheme();
-  const icon =
-    (on: Icon, off: Icon) =>
-    ({ color, focused }: { color: unknown; focused: boolean }) => <Ionicons name={focused ? on : off} size={23} color={typeof color === 'string' ? color : c.text} />;
+  const icon = (on: Icon, off: Icon) =>
+    function TabIcon({ color, focused }: { color: unknown; focused: boolean }) {
+      return <Ionicons name={focused ? on : off} size={23} color={typeof color === 'string' ? color : c.text} />;
+    };
 
   return (
     <Tabs

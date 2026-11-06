@@ -9,7 +9,6 @@ import { ScreenHeader } from '../../components/ScreenHeader';
 import { EmptyState, PlatformTabs, RowSkeleton } from '../../components/ui';
 import { useDirectory, type DirectoryPlatform } from '../../hooks/queries';
 import { font, GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
-import { Text } from '../../theme/Text';
 
 const TABS: { value: DirectoryPlatform; label: string; dot?: string }[] = [
   { value: 'all-switch', label: 'All Switch' },
@@ -71,11 +70,11 @@ export default function DirectoryScreen() {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           isSteam && query.trim().length < 2 ? (
-            <EmptyState title="Search Steam" body="Type a game's name. Open it to compare prices across Steam regions." />
+            <EmptyState title="Search Steam" body="Type a game’s name. Open it to compare prices across Steam regions." />
           ) : q.isPending ? (
             <RowSkeleton />
           ) : q.isError ? (
-            <EmptyState title="Couldn't load games" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
+            <EmptyState title="Couldn’t load games" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
           ) : (
             <EmptyState title="No games found" body={`Nothing matches "${query.trim()}". Check the spelling or try fewer words.`} />
           )
@@ -84,11 +83,6 @@ export default function DirectoryScreen() {
         onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && q.fetchNextPage()}
         ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xxl }} color={c.subtle} /> : <View style={{ height: space.xxl }} />}
       />
-      {q.isFetching && !q.isPending && !q.isFetchingNextPage ? (
-        <Text variant="caption" tone="subtle" style={styles.updating}>
-          Updating…
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -96,5 +90,4 @@ export default function DirectoryScreen() {
 const styles = StyleSheet.create({
   search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginBottom: space.sm, paddingHorizontal: space.md, height: 44, borderRadius: radius.md },
   input: { flex: 1, height: '100%', fontFamily: font.regular, fontSize: 16 },
-  updating: { position: 'absolute', top: 0, right: GUTTER },
 });

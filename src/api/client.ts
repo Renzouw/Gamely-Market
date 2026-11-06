@@ -58,12 +58,33 @@ function qs(q?: Query): string {
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
-export async function api<T>(path: string, opts: { query?: Query; method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; auth?: boolean; signal?: AbortSignal } = {}): Promise<T> {
+/** Called when this install gets a new identity, so cached device state can be resent. */
+const resetListeners = new Set<() => void>();
+export function onDeviceReset(fn: () => void) {
+  resetListeners.add(fn);
+  return () => resetListeners.delete(fn);
+}
+
+async function forgetDevice(stale: DeviceRegistration) {
+  // An old request can come back late; never throw away a newer registration
+  if (device && device.id !== stale.id) return;
+  device = undefined;
+  const stored = await readStored();
+  if (stored && stored.id !== stale.id) return;
+  if (Platform.OS === 'web') globalThis.localStorage?.removeItem(KEY);
+  else await SecureStore.deleteItemAsync(KEY);
+  resetListeners.forEach((fn) => fn());
+}
+
+type ApiOpts = { query?: Query; method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; auth?: boolean; signal?: AbortSignal };
+
+export async function api<T>(path: string, opts: ApiOpts = {}, retried = false): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+  let creds: DeviceRegistration | undefined;
   if (opts.auth) {
-    const d = await ensureDevice();
-    headers.Authorization = `Bearer ${d.id}.${d.secret}`;
+    creds = await ensureDevice();
+    headers.Authorization = `Bearer ${creds.id}.${creds.secret}`;
   }
   let res: Response;
   try {
@@ -74,13 +95,13 @@ export async function api<T>(path: string, opts: { query?: Query; method?: 'GET'
       signal: opts.signal,
     });
   } catch {
-    throw new ApiError(0, "Can't reach Gamely. Check your connection.");
+    throw new ApiError(0, "Can’t reach Gamely. Check your connection.");
   }
-  if (res.status === 401 && opts.auth) {
-    // The server forgot us (e.g. a fresh database). Register again once.
-    device = undefined;
-    if (Platform.OS === 'web') globalThis.localStorage?.removeItem(KEY);
-    else await SecureStore.deleteItemAsync(KEY);
+  if (res.status === 401 && creds && !retried) {
+    // The server no longer knows this install (e.g. its database was reset).
+    // Register again and retry once, so the person never sees "Unknown device".
+    await forgetDevice(creds);
+    return api<T>(path, opts, true);
   }
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -90,5 +111,5 @@ export async function api<T>(path: string, opts: { query?: Query; method?: 'GET'
 }
 
 export function errorText(e: unknown): string {
-  return e instanceof ApiError ? e.message : 'Something went wrong. Pull down to try again.';
+  return e instanceof ApiError ? e.message : 'Something went wrong. Try again in a moment.';
 }

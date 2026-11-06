@@ -2,8 +2,9 @@ import { DEFAULT_ALERTS, type AlertPrefs } from '@shared/api';
 import type { Platform } from '@shared/types';
 import { all, placeholders, run, type Db } from '../db';
 import { readFx } from '../ingest/fx';
+import { refreshGames, withPriceLock } from '../ingest/prices';
 import { pricesFor, tx, type PriceChange, type PriceRow } from '../store';
-import { nextSendTime, planAlerts, planEnding, type DeviceCtx, type PlannedAlert, type WatchCtx } from './plan';
+import { nextSendTime, planAlertCandidates, planEnding, type DeviceCtx, type PlannedAlert, type WatchCtx } from './plan';
 
 interface WatchJoin {
   device_id: string;
@@ -71,6 +72,17 @@ function enqueue(db: Db, w: WatchJoin, a: PlannedAlert, now: number): boolean {
   return Number(res.changes) > 0;
 }
 
+/**
+ * Re-price games and queue alerts for what changed, as one locked step, so
+ * no other refresh can slip changes in between applying and planning.
+ */
+export function refreshAndAlert(db: Db, gameIds: string[]): Promise<{ changes: PriceChange[]; queued: number }> {
+  return withPriceLock(async () => {
+    const changes = await refreshGames(db, gameIds);
+    return { changes, queued: queueAlertsForChanges(db, changes) };
+  });
+}
+
 /** Turn a batch of price changes into queued notifications for everyone watching those games. */
 export function queueAlertsForChanges(db: Db, changes: PriceChange[], now = Date.now()): number {
   if (!changes.length) return 0;
@@ -94,7 +106,7 @@ export function queueAlertsForChanges(db: Db, changes: PriceChange[], now = Date
         else beforeMap.delete(c.country);
       }
       const { device, watch } = ctx(w);
-      const plan = planAlerts({
+      const plans = planAlertCandidates({
         device,
         watch,
         before: [...beforeMap.values()],
@@ -102,7 +114,8 @@ export function queueAlertsForChanges(db: Db, changes: PriceChange[], now = Date
         newLowCountries: gameChanges.filter((c) => c.newLow).map((c) => c.country),
         fx,
       });
-      if (plan && enqueue(db, w, plan, now)) queued++;
+      // First candidate that isn't a repeat wins
+      if (plans.some((p) => enqueue(db, w, p, now))) queued++;
     }
   });
   return queued;

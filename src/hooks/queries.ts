@@ -30,7 +30,13 @@ export function useStatus() {
 const flatten = (data?: InfiniteData<ApiList>) => {
   const seen = new Set<string>();
   const items: ApiListItem[] = [];
-  for (const page of data?.pages ?? []) for (const it of page.items) if (!seen.has(it.game.key)) (seen.add(it.game.key), items.push(it));
+  for (const page of data?.pages ?? []) {
+    for (const it of page.items) {
+      if (seen.has(it.game.key)) continue;
+      seen.add(it.game.key);
+      items.push(it);
+    }
+  }
   return items;
 };
 
@@ -46,6 +52,10 @@ export function useDeals(platform: Platform, sort: DealSort, filters: DealFilter
   const q = useInfiniteQuery({
     queryKey: ['deals', platform, sort, filters, p.home, p.currency, regions],
     initialPageParam: undefined as string | undefined,
+    // Changing sort or a filter keeps the old list on screen until the new one arrives,
+    // but switching platform never shows the previous platform's games
+    placeholderData: (prev: InfiniteData<ApiList, string | undefined> | undefined, prevQuery?: { queryKey: readonly unknown[] }) =>
+      prevQuery?.queryKey[1] === platform ? prev : undefined,
     staleTime: 2 * 60_000,
     queryFn: ({ pageParam, signal }) =>
       api<ApiList>('/v1/deals', { query: { platform, sort, home: p.home, currency: p.currency, regions, cursor: pageParam, ...filters }, signal }),
@@ -64,6 +74,9 @@ export function useDirectory(platform: DirectoryPlatform, query: string) {
   const q = useInfiniteQuery({
     queryKey: ['games', platform, term, p.home, regions],
     initialPageParam: undefined as string | undefined,
+    // Keep results visible while typing, within the same platform
+    placeholderData: (prev: InfiniteData<ApiList, string | undefined> | undefined, prevQuery?: { queryKey: readonly unknown[] }) =>
+      prevQuery?.queryKey[1] === platform ? prev : undefined,
     staleTime: 5 * 60_000,
     enabled: platform !== 'steam' || term.length >= 2,
     queryFn: ({ pageParam, signal }) => api<ApiList>('/v1/games', { query: { platform, q: term, home: p.home, regions, cursor: pageParam }, signal }),
@@ -111,7 +124,17 @@ export function useWatchActions() {
   const qc = useQueryClient();
   const patch = (fn: (items: ApiWatch[]) => ApiWatch[]) => qc.setQueryData<ApiWatch[]>(['watches'], (old) => fn(old ?? []));
 
+  // Watch changes run one at a time in order, so a quick watch-then-unwatch
+  // can't reach the server in the wrong order
+  const scope = { id: 'watches' };
+  // Refetch only after the last pending change, so switches don't flicker back
+  const settle = () => {
+    if (qc.isMutating({ mutationKey: ['watch'] }) <= 1) qc.invalidateQueries({ queryKey: ['watches'] });
+  };
+
   const save = useMutation({
+    mutationKey: ['watch'],
+    scope,
     mutationFn: ({ game, input }: { game: ApiGame; input: WatchInput }) =>
       api(`/v1/watches/${encodeURIComponent(game.key)}`, { method: 'PUT', body: input, auth: true }),
     onMutate: async ({ game, input }) => {
@@ -132,10 +155,12 @@ export function useWatchActions() {
       return { prev };
     },
     onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(['watches'], ctx.prev),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['watches'] }),
+    onSettled: settle,
   });
 
   const remove = useMutation({
+    mutationKey: ['watch'],
+    scope,
     mutationFn: (key: string) => api(`/v1/watches/${encodeURIComponent(key)}`, { method: 'DELETE', auth: true }),
     onMutate: async (key) => {
       await qc.cancelQueries({ queryKey: ['watches'] });
@@ -144,7 +169,7 @@ export function useWatchActions() {
       return { prev };
     },
     onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(['watches'], ctx.prev),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['watches'] }),
+    onSettled: settle,
   });
 
   return { save, remove };

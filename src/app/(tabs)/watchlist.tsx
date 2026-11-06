@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { router, useLocalSearchParams } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import type { ApiActivity, ApiWatch } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
@@ -109,10 +109,12 @@ const AlertRow = memo(function AlertRow({ a }: { a: ApiActivity }) {
 export default function WatchlistScreen() {
   const { c } = useTheme();
   const params = useLocalSearchParams<{ tab?: string }>();
-  const [tab, setTab] = useState<Tab>('watching');
-  useEffect(() => {
+  const [tab, setTab] = useState<Tab>(params.tab === 'alerts' ? 'alerts' : 'watching');
+  const [seenTab, setSeenTab] = useState(params.tab);
+  if (params.tab !== seenTab) {
+    setSeenTab(params.tab);
     if (params.tab === 'alerts') setTab('alerts');
-  }, [params.tab]);
+  }
   const watches = useWatches();
   const activity = useActivity();
 
@@ -152,11 +154,11 @@ export default function WatchlistScreen() {
             watches.isPending ? (
               <RowSkeleton rows={4} />
             ) : watches.isError ? (
-              <EmptyState title="Couldn't load your watchlist" body={errorText(watches.error)} action={{ label: 'Try again', onPress: () => watches.refetch() }} />
+              <EmptyState title="Couldn’t load your watchlist" body={errorText(watches.error)} action={{ label: 'Try again', onPress: () => watches.refetch() }} />
             ) : (
               <EmptyState
                 title="Nothing watched yet"
-                body="Open any game and tap Watch price. We'll check it every few minutes and tell you when it's worth buying."
+                body="Open any game and tap Watch price. We’ll check it every few minutes and tell you when it’s worth buying."
                 action={{ label: 'Browse deals', onPress: () => router.push('/') }}
               />
             )
@@ -173,6 +175,8 @@ export default function WatchlistScreen() {
           ListEmptyComponent={
             activity.isPending ? (
               <RowSkeleton rows={4} />
+            ) : activity.isError ? (
+              <EmptyState title="Couldn’t load your alerts" body={errorText(activity.error)} action={{ label: 'Try again', onPress: () => activity.refetch() }} />
             ) : (
               <EmptyState title="No alerts yet" body="When a game you watch goes on sale, hits a new low or a sale is about to end, it shows up here too." />
             )

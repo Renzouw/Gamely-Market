@@ -42,7 +42,8 @@ export function PriceSpread({ ranked, homeCountry, currency }: { ranked: Convert
                       width: isBest || isHome ? 12 : 8,
                       height: isBest || isHome ? 12 : 8,
                       borderRadius: 6,
-                      backgroundColor: isBest ? c.signal : isHome ? c.bg : c.subtle,
+                      // signalText is lime in dark mode and a dark green in light mode, so the marker stays visible
+                      backgroundColor: isBest ? c.signalText : isHome ? c.bg : c.subtle,
                       borderWidth: isHome && !isBest ? 2 : 0,
                       borderColor: c.text,
                       top: isBest || isHome ? 5 : 7,

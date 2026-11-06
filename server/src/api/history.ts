@@ -7,7 +7,18 @@ export interface HistoryRow {
   t: number;
   currency: string;
   price: number;
+  /** -1 marks the game being delisted in that country */
+  discount?: number;
 }
+
+const apply = (current: Map<string, number>, r: HistoryRow, currency: string, fx?: FxRates) => {
+  if (r.discount !== undefined && r.discount < 0) {
+    current.delete(r.country);
+    return;
+  }
+  const v = convert(r.price, r.currency, currency, fx);
+  if (v !== undefined) current.set(r.country, v);
+};
 
 const DAY = 86400_000;
 const dayStart = (t: number) => Math.floor(t / DAY) * DAY;
@@ -34,19 +45,12 @@ export function dailyBest(rows: HistoryRow[], currency: string, fx: FxRates | un
   };
 
   // Replay everything before the window so the first day starts correct
-  while (i < sorted.length && sorted[i].t < from) {
-    const r = sorted[i++];
-    const v = convert(r.price, r.currency, currency, fx);
-    if (v !== undefined) current.set(r.country, v);
-  }
+  while (i < sorted.length && sorted[i].t < from) apply(current, sorted[i++], currency, fx);
 
   for (let day = from; day <= dayStart(now); day += DAY) {
     let dayBest = bestNow();
     while (i < sorted.length && sorted[i].t < day + DAY) {
-      const r = sorted[i++];
-      const v = convert(r.price, r.currency, currency, fx);
-      if (v === undefined) continue;
-      current.set(r.country, v);
+      apply(current, sorted[i++], currency, fx);
       const b = bestNow();
       if (b && (!dayBest || b.v < dayBest.v)) dayBest = b;
     }

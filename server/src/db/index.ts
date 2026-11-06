@@ -14,12 +14,33 @@ export function openDb(path: string): Db {
 }
 
 /** Columns added after the first release. CREATE TABLE IF NOT EXISTS won't add them to an old database. */
-const COLUMNS: [table: string, column: string, ddl: string][] = [['devices', 'event_alerts', "TEXT NOT NULL DEFAULT '{}'"]];
+const COLUMNS: [table: string, column: string, ddl: string][] = [
+  ['devices', 'event_alerts', "TEXT NOT NULL DEFAULT '{}'"],
+  ['notifications', 'attempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['games', 'jp_checked_at', 'INTEGER'],
+];
+
+const INDEXES = [
+  'CREATE INDEX IF NOT EXISTS notifications_ticket ON notifications(ticket_id) WHERE ticket_id IS NOT NULL',
+  'CREATE UNIQUE INDEX IF NOT EXISTS devices_push_token ON devices(push_token) WHERE push_token IS NOT NULL',
+];
 
 function migrate(db: DatabaseSync) {
   for (const [table, column, ddl] of COLUMNS) {
     const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+  const has = (table: string, column: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+  if (has('devices', 'push_token')) {
+    // A reinstall used to leave the same push token on an old device row. Keep only
+    // the newest owner before the unique index goes on.
+    db.exec(`UPDATE devices SET push_token = NULL WHERE push_token IS NOT NULL AND rowid NOT IN
+               (SELECT MAX(rowid) FROM devices WHERE push_token IS NOT NULL GROUP BY push_token)`);
+  }
+  for (const sql of INDEXES) {
+    const [, table, column] = sql.match(/ON (\w+)\((\w+)\)/) ?? [];
+    if (!table || has(table, column)) db.exec(sql);
   }
 }
 

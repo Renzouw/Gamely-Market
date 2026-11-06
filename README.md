@@ -64,10 +64,11 @@ Both can be switched off, limited to certain platforms, and the big-deal thresho
 cd server
 npm install
 npm run dev          # API on :8787, jobs start immediately
-npm test             # 52 tests, including a full price-change-to-push run
+npm test             # 68 tests, including a full price-change-to-push run
+npx tsx scripts/loadtest.ts   # 15,000 games x 18 countries, 3,000 users, in memory
 ```
 
-It stores everything in one SQLite file (Node's built-in SQLite, no database server needed). To deploy, build `server/Dockerfile` from the repo root and mount a volume at `/data`. Any host that runs a container with a disk works: Fly.io, Railway, Render, a small VPS.
+It stores everything in one SQLite file (Node's built-in SQLite, no database server needed). To deploy, build `server/Dockerfile` from the repo root and mount a volume at `/data`. Any host that runs a container with a disk works: Fly.io, Railway, Render, a small VPS. Behind a proxy that sets `X-Forwarded-For`, set `TRUST_PROXY=1` so rate limits apply per real client.
 
 ### App
 
@@ -75,7 +76,8 @@ It stores everything in one SQLite file (Node's built-in SQLite, no database ser
 npm install
 cp .env.example .env   # point EXPO_PUBLIC_API_URL at your server
 npx expo start
-npm test               # app tests
+npm test               # app tests, including smoke tests that render the real app on the native code path
+npm run lint
 npm run typecheck
 ```
 

@@ -111,6 +111,8 @@ describe('regions', () => {
     expect(guessHome('MX', 'MXN')).toEqual({ region: 'MX', currency: 'MXN' });
     expect(guessHome('ZZ', null)).toEqual({ region: 'US', currency: 'USD' });
     expect(guessHome('PH', 'PHP')).toEqual({ region: 'US', currency: 'PHP' });
+    expect(guessHome('IE', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
+    expect(guessHome('AT', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
   });
 
   it('picks a Steam store country', () => {
