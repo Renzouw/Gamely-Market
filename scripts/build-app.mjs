@@ -1,7 +1,7 @@
 // Build the installable app in Expo's cloud (free plan works), then install it from the link it prints.
 //   npm run build:android   an APK you install from a link on your phone
 //   npm run build:ios       needs a paid Apple Developer account
-import { spawnSync } from 'node:child_process';
+import { run } from './run.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const target = process.argv[2] === 'ios' ? 'ios' : 'android';
 const eas = (args, opts = {}) =>
-  spawnSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['--yes', 'eas-cli@latest', ...args], { cwd: root, stdio: 'inherit', shell: process.platform === 'win32', ...opts });
+  run('npx', ['--yes', 'eas-cli@latest', ...args], { cwd: root, stdio: 'inherit', ...opts });
 
 console.log('\n> Checking your Expo account');
 if (eas(['whoami'], { stdio: 'ignore' }).status !== 0) {

@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { run } from './run.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const serverDir = join(root, 'server');
@@ -47,8 +48,7 @@ function runningPid() {
 
 function build() {
   say('> Building the server');
-  const npm = os === 'win32' ? 'npm.cmd' : 'npm';
-  const r = spawnSync(npm, ['run', 'build'], { cwd: serverDir, stdio: 'inherit', shell: os === 'win32' });
+  const r = run('npm', ['run', 'build'], { cwd: serverDir, stdio: 'inherit' });
   if (r.status !== 0) fail('The server build failed. Run "npm run setup" first, then try again.');
 }
 

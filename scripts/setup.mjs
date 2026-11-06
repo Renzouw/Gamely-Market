@@ -1,11 +1,11 @@
 // One-time local setup: `npm run setup`
 // Installs packages, finds this computer's address on your Wi-Fi, and writes
 // the config files so the app on your phone can reach the server on this PC.
-import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { run } from './run.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const step = (msg) => console.log(`\n> ${msg}`);
@@ -22,10 +22,9 @@ if (major < 22 || (major === 22 && minor < 13)) {
 console.log(`✓ Node ${process.versions.node}`);
 
 // 2. Packages for the app and the server
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 for (const [label, cwd] of [['app', root], ['server', join(root, 'server')]]) {
   step(`Installing ${label} packages (this can take a few minutes the first time)`);
-  const r = spawnSync(npm, ['install', '--no-fund', '--no-audit'], { cwd, stdio: 'inherit', shell: process.platform === 'win32' });
+  const r = run('npm', ['install', '--no-fund', '--no-audit'], { cwd, stdio: 'inherit' });
   if (r.status !== 0) fail(`Installing ${label} packages failed. Check the messages above, fix the problem, then run "npm run setup" again.`);
 }
 
