@@ -1,0 +1,79 @@
+{
+ "result": {
+  "total": 15831,
+  "items": [
+   {
+    "id": "70010000096306",
+    "title": "ドンキーコング バナンザ",
+    "nsuid": "70010000096306",
+    "icode": "AAACA",
+    "hard": "05_BEE",
+    "sform": "BEE_DOWNLOADABLE",
+    "dsdate": "2025-07-17 00:00:00",
+    "sdate": "2025.7.17",
+    "maker": "任天堂",
+    "ssitu": "onsale"
+   },
+   {
+    "id": "70070000030677",
+    "title": "ドンキーコング バナンザ ＋ ＤＫアイランド＆エメラルドラッシュ セット",
+    "nsuid": "70070000030677",
+    "icode": "AAACA",
+    "hard": "05_BEE",
+    "sform": "DL_DLC",
+    "dsdate": "2025-09-12 00:00:00",
+    "sdate": "2025.9.12",
+    "maker": "任天堂",
+    "ssitu": "onsale"
+   },
+   {
+    "id": "70010000096248",
+    "title": "ゼルダの伝説 ティアーズ オブ ザ キングダム Nintendo Switch 2 Edition",
+    "nsuid": "70010000096248",
+    "icode": "AXN7A",
+    "hard": "05_BEE",
+    "sform": "BEE_DOWNLOADABLE",
+    "dsdate": "2025-06-05 00:00:00",
+    "sdate": "2025.6.5",
+    "maker": "任天堂",
+    "ssitu": "onsale"
+   },
+   {
+    "id": "70050000056483",
+    "title": "ゼルダの伝説 ティアーズ オブ ザ キングダム Nintendo Switch 2 Edition アップグレードパス",
+    "nsuid": "70050000056483",
+    "icode": "AXN7A",
+    "hard": "05_BEE",
+    "sform": "DLC",
+    "dsdate": "2025-06-05 00:00:00",
+    "sdate": "2025.6.5",
+    "maker": "任天堂",
+    "ssitu": "onsale"
+   },
+   {
+    "id": "70010000063713",
+    "title": "ゼルダの伝説 ティアーズ オブ ザ キングダム",
+    "nsuid": "70010000063713",
+    "icode": "AXN7A",
+    "hard": "1_HAC",
+    "sform": "HAC_DOWNLOADABLE",
+    "dsdate": "2023-05-12 00:00:00",
+    "sdate": "2023.5.12",
+    "maker": "任天堂",
+    "ssitu": "onsale"
+   },
+   {
+    "id": "70010000000828",
+    "title": "スーパーマリオ オデッセイ",
+    "nsuid": "70010000000828",
+    "icode": "AAACA",
+    "hard": "1_HAC",
+    "sform": "HAC_DOWNLOADABLE",
+    "dsdate": "2017-10-27 00:00:00",
+    "sdate": "2017.10.27",
+    "maker": "任天堂",
+    "ssitu": "onsale"
+   }
+  ]
+ }
+}

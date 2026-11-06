@@ -1,8 +1,10 @@
 import { config } from './config';
 import { all, get, run, type Db } from './db';
 import { queueEndingAlerts, refreshAndAlert } from './alerts/run';
-import { discoverSteamDeals, matchJapan, syncEuCatalog, syncUsCatalog } from './ingest/catalog';
+import { discoverSteamDeals, syncEuCatalog, syncUsCatalog } from './ingest/catalog';
 import { invalidateFx, syncFx } from './ingest/fx';
+import { linkRegions, syncRegionCatalogs } from './ingest/regions';
+import { isOverdue, markRun } from './store';
 import { checkReceipts, dispatch } from './push/dispatch';
 import { detectSaleEvents, queueBigDeals } from './events/run';
 import { chunk } from './sources/http';
@@ -63,12 +65,16 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     await refresh(all<{ id: string }>(db, 'SELECT id FROM games WHERE on_sale = 1').map((r) => r.id));
   }
 
+  /** Full catalogs, then Japan, Hong Kong and Korea, then price whatever got newly linked. */
   async function catalog() {
     for (const platform of ['switch2', 'switch'] as const) {
       await syncEuCatalog(db, { platform, onSaleOnly: false });
       await syncUsCatalog(db, { platform, onSaleOnly: false });
     }
-    await matchJapan(db);
+    await syncRegionCatalogs(db);
+    const linked = await linkRegions(db);
+    log(`regions: ${linked.length} games newly linked in Japan, Hong Kong or Korea`);
+    await refresh(linked);
   }
 
   /** Every game in every region, once a day. Catches sales the catalogs haven't flagged yet. */
@@ -77,14 +83,25 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
   }
 
   const isEmpty = () => !get<{ n: number }>(db, 'SELECT 1 AS n FROM games LIMIT 1');
+  /**
+   * Daily jobs remember when they last finished. The PC restarts more often
+   * than once a day, and a timer alone would start counting from zero each
+   * time, so these would never run.
+   */
+  const remembered = (name: string, every: number, fn: () => Promise<void>) => ({
+    name,
+    every,
+    atStart: isEmpty() || isOverdue(db, name, every),
+    run: async () => (await fn(), markRun(db, name)),
+  });
 
   return [
     { name: 'fx', every: config.schedule.fx, atStart: true, run: async () => (await syncFx(db), invalidateFx()) },
-    { name: 'catalog', every: config.schedule.catalog, atStart: isEmpty(), run: catalog },
     { name: 'deals', every: config.schedule.dealDiscovery, atStart: true, run: deals },
+    remembered('catalog', config.schedule.catalog, catalog),
     { name: 'hot', every: config.schedule.hotPrices, atStart: false, run: hot },
     { name: 'sales', every: config.schedule.salePrices, atStart: false, run: sales },
-    { name: 'sweep', every: config.schedule.fullSweep, atStart: false, run: sweep },
+    remembered('sweep', config.schedule.fullSweep, sweep),
     { name: 'events', every: config.schedule.saleEvents, atStart: false, run: async () => void detectSaleEvents(db) },
     { name: 'big-deals', every: config.schedule.bigDeals, atStart: false, run: async () => void queueBigDeals(db) },
     { name: 'ending', every: config.schedule.endingSoon, atStart: false, run: async () => void queueEndingAlerts(db) },

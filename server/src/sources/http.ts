@@ -74,8 +74,14 @@ export async function postJson<T>(url: string, body: unknown, headers: Record<st
   return (await res.json()) as T;
 }
 
-export function qs(params: Record<string, string | number | boolean | undefined>): string {
+export async function getText(url: string, opts?: RequestOpts): Promise<string> {
+  return (await request(url, { ...opts, headers: { Accept: 'text/html', ...opts?.headers } })).text();
+}
+
+/** Query string. An array repeats the key, e.g. { "f[]": ["a", "b"] } → "f%5B%5D=a&f%5B%5D=b". */
+export function qs(params: Record<string, string | number | boolean | string[] | undefined>): string {
   return Object.entries(params)
+    .flatMap(([k, v]) => (Array.isArray(v) ? v.map((x) => [k, x] as const) : [[k, v] as const]))
     .filter(([, v]) => v !== undefined && v !== '')
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
     .join('&');

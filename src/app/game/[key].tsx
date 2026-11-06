@@ -19,7 +19,13 @@ import { useSettings } from '../../state/settings';
 import { font, GUTTER, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
-const GROUP_NAMES = { americas: 'the Americas', europe: 'Europe', japan: 'Japan' } as const;
+const GROUP_NAMES = { americas: 'the Americas', europe: 'Europe', japan: 'Japan', hongkong: 'Hong Kong', korea: 'South Korea' } as const;
+
+/** "Japan", "Japan or Hong Kong", "Japan, Hong Kong or South Korea" */
+function listNames(groups: (keyof typeof GROUP_NAMES)[], joiner: 'and' | 'or'): string {
+  const names = groups.map((g) => GROUP_NAMES[g]);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} ${joiner} ${names[names.length - 1]}` : (names[0] ?? '');
+}
 
 export default function GameScreen() {
   const { key } = useLocalSearchParams<{ key: string }>();
@@ -201,7 +207,9 @@ export default function GameScreen() {
             ) : null}
             {d.unmatched.length ? (
               <Text variant="footnote" tone="subtle" style={{ marginTop: space.md }}>
-                We couldn’t confirm this exact game in {d.unmatched.map((u) => GROUP_NAMES[u]).join(' or ')}, so we left those prices out rather than risk showing the wrong game.
+                {mode === 'direct'
+                  ? `Prices for ${listNames(d.unmatched, 'and')} need your Gamely server to find this game there, and it isn’t reachable right now.`
+                  : `We couldn’t confirm this exact game in ${listNames(d.unmatched, 'or')}, so we left those prices out rather than risk showing the wrong game.`}
               </Text>
             ) : null}
           </View>

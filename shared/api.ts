@@ -1,4 +1,4 @@
-import type { FxRates, Game, Platform, RegionPrice } from './types';
+import type { FxRates, Game, Platform, RegionPrice, ShopGroup } from './types';
 
 /** Contract between the Gamely API and the app. */
 
@@ -69,7 +69,7 @@ export interface ApiGameDetail {
   /** When we started tracking this game */
   trackedSince: number;
   /** Regional catalogs we couldn't confidently match this game in */
-  unmatched: ('americas' | 'europe' | 'japan')[];
+  unmatched: Exclude<ShopGroup, 'steam'>[];
   stale: boolean;
 }
 

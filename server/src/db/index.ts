@@ -17,8 +17,13 @@ export function openDb(path: string): Db {
 const COLUMNS: [table: string, column: string, ddl: string][] = [
   ['devices', 'event_alerts', "TEXT NOT NULL DEFAULT '{}'"],
   ['notifications', 'attempts', 'INTEGER NOT NULL DEFAULT 0'],
-  ['games', 'jp_checked_at', 'INTEGER'],
+  ['games', 'app_id', 'TEXT'], // Nintendo's application ID, the same in every region
+  ['games', 'code_key', 'TEXT'], // product code key learned from another region, when Europe has none
+  ['games', 'region_checked_at', 'INTEGER'], // last look for a Japan/Hong Kong/Korea match
 ];
+
+/** Columns that are no longer used. */
+const DROPPED: [table: string, column: string][] = [['games', 'jp_checked_at']];
 
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS notifications_ticket ON notifications(ticket_id) WHERE ticket_id IS NOT NULL',
@@ -29,6 +34,10 @@ function migrate(db: DatabaseSync) {
   for (const [table, column, ddl] of COLUMNS) {
     const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+  for (const [table, column] of DROPPED) {
+    const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    if (cols.includes(column)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   }
   const has = (table: string, column: string) =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);

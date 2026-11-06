@@ -84,6 +84,21 @@ describe('phone-only data', () => {
     expect(out.get('sw:eu:2')!.map((p) => p.country)).toEqual(['GB']);
   });
 
+  it('prices Japan, Hong Kong and Korea with IDs the server already found', async () => {
+    const asked: string[] = [];
+    globalThis.fetch = jest.fn(async (url: string) => {
+      const u = new URL(url);
+      asked.push(`${u.searchParams.get('country')}:${u.searchParams.get('ids')}`);
+      const currency = { JP: 'JPY', HK: 'HKD', KR: 'KRW' }[u.searchParams.get('country')!] ?? 'GBP';
+      return new Response(JSON.stringify({ prices: u.searchParams.get('ids')!.split(',').map((id) => ({ title_id: Number(id), sales_status: 'onsale', regular_price: { currency, raw_value: '449' } })) }));
+    }) as unknown as typeof fetch;
+    // Donkey Kong Bananza's real IDs in each group
+    const bananza = { key: 'sw:eu:70010000096810', platform: 'switch2' as const, nsuids: { europe: '70010000096810', japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811' } };
+    const out = await directPrices([bananza], { ...ctx, switchRegions: ['GB', 'JP', 'HK', 'KR'] });
+    expect(asked.sort()).toEqual(['GB:70010000096810', 'HK:70010000096812', 'JP:70010000096306', 'KR:70010000096811']);
+    expect(out.get(bananza.key)!.map((p) => `${p.country} ${p.regular.currency}`).sort()).toEqual(['GB GBP', 'HK HKD', 'JP JPY', 'KR KRW']);
+  });
+
   it('builds a deals page in the server’s shape, with filters applied', async () => {
     globalThis.fetch = jest.fn(async (url: string) => {
       const u = new URL(url);

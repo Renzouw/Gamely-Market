@@ -26,13 +26,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS games_steam ON games(steam_app_id) WHERE steam
 
 -- Nintendo gives a game a different ID in each regional group
 CREATE TABLE IF NOT EXISTS game_ids (
-  grp           TEXT NOT NULL,             -- americas | europe | japan
+  grp           TEXT NOT NULL,             -- americas | europe | japan | hongkong | korea
   nsuid         TEXT NOT NULL,
   game_id       TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  match_method  TEXT NOT NULL,             -- source | product_code | title_publisher | title_date
+  match_method  TEXT NOT NULL,             -- source | product_code | application_id | title_publisher | title_date
   PRIMARY KEY (grp, nsuid)
 );
 CREATE INDEX IF NOT EXISTS game_ids_game ON game_ids(game_id);
+
+-- Japan, Hong Kong and Korea list games in their own languages, so we keep
+-- their catalogs here and link games by product code instead of by title
+CREATE TABLE IF NOT EXISTS region_catalog (
+  grp           TEXT NOT NULL,             -- japan | hongkong | korea
+  nsuid         TEXT NOT NULL,
+  platform      TEXT NOT NULL,             -- switch2 | switch
+  code_key      TEXT NOT NULL,             -- hardware + product code core, e.g. "BEEAAAC"
+  title         TEXT NOT NULL,
+  release_date  TEXT,
+  app_id        TEXT,                      -- from the eShop title page, fetched only when needed
+  app_checked_at INTEGER,
+  seen_at       INTEGER NOT NULL,
+  PRIMARY KEY (grp, nsuid)
+);
+CREATE INDEX IF NOT EXISTS region_catalog_key ON region_catalog(grp, code_key);
+CREATE INDEX IF NOT EXISTS region_catalog_date ON region_catalog(grp, platform, release_date);
+CREATE INDEX IF NOT EXISTS region_catalog_app ON region_catalog(grp, app_id) WHERE app_id IS NOT NULL;
+
+-- When each scheduled job last finished, so a restart doesn't reset a daily job's clock
+CREATE TABLE IF NOT EXISTS job_runs (
+  name          TEXT PRIMARY KEY,
+  last_ok       INTEGER NOT NULL
+);
 
 -- The latest price we saw for a game in a country
 CREATE TABLE IF NOT EXISTS prices (

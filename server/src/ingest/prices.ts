@@ -6,6 +6,7 @@ import { detectSteamCurrency, fetchSteamItems, fetchSteamPrices } from '../sourc
 import {
   applyPrice,
   getGames,
+  GROUPS,
   nsuidsForGames,
   refreshSaleFlags,
   removePrice,
@@ -34,7 +35,7 @@ export async function refreshSwitchPrices(db: Db, gameIds: string[], countries =
   let ok = 0;
 
   const reverseByGroup = new Map<Group, Map<string, string>>();
-  for (const grp of ['americas', 'europe', 'japan'] as Group[]) {
+  for (const grp of GROUPS) {
     const reverse = new Map<string, string>();
     nsuids.forEach((m, gameId) => m[grp] && reverse.set(m[grp]!, gameId));
     reverseByGroup.set(grp, reverse);

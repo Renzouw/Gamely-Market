@@ -19,7 +19,8 @@ Gamely was built in a cloud Claude Code session and moved to a local project on 
 
 | Thing | Status |
 | --- | --- |
-| App and server tests, lint, typecheck | Passing (39 app tests, 70 server tests). The app smoke tests have a 60 s timeout because a cold Jest cache takes over 5 s to load every screen |
+| App and server tests, lint, typecheck | Passing (41 app tests, 84 server tests). The app smoke tests have a 60 s timeout because a cold Jest cache takes over 5 s to load every screen |
+| Japan, Hong Kong, Korea (2026-11-06) | Checked live on the PC. Donkey Kong Bananza priced in JP (¥7,980), HK (HKD 449) and KR (₩79,800). See "Asian eShops" below |
 | Server against the live stores | One live run on the PC: over 5,000 prices fetched, no errors |
 | Server auto-start on Windows | Confirmed working |
 | Auto-update (`scripts/update.mjs`) | Tested on Linux copies; the Windows Task Scheduler part hasn't run for real yet |
@@ -29,9 +30,16 @@ Gamely was built in a cloud Claude Code session and moved to a local project on 
 
 The cloud session couldn't reach the stores, Expo, or Expo's docs, so anything touching those was written from documented formats and tested with samples. Working locally, you can check against the real services.
 
+## Asian eShops: how they're found
+
+Japan was never matched before 2026-11-06, for three reasons: the old lookup searched Japan's catalog by product code, which that search doesn't support (always 0 results); Europe has no product code for most Switch 2 games (Bananza included); and the catalog job only ran on a 12-hour timer that restarted from zero at every login, so it rarely ran at all. Daily jobs now remember their last run (`job_runs` table) and run at startup when overdue.
+
+- **Sources** (`shared/stores/nintendoRegions.ts`): Japan's `search.nintendo.jp` (about 15,800 downloadable games, 53 pages of 300, ~400 KB each, so newest 3 pages per run and the whole list weekly); Hong Kong and Korea from `www.nintendo.com/{hk,kr}/api/search?k=Switch` (2 or 3 requests each). Their paged `/api/software` list shuffles same-day titles between pages and misses about 1 in 10, so don't switch back to it. `store.nintendo.com.hk` and `store.nintendo.co.kr` sit behind a bot challenge: don't use them.
+- **Matching** (`server/src/ingest/regions.ts`): product code core plus platform (the core alone repeats: Odyssey is HAC AAAC, Bananza is BEE AAAC). When Europe has no code, the application ID from Europe must match exactly one Hong Kong listing on the same platform; the ID comes from `ec.nintendo.com/HK/zh/titles/<nsuid>` (Korea's pages don't have it). Pages are read once and remembered, 250 per run.
+- **Coverage after the first live run**: 5,121 games linked in Japan, 3,141 in Hong Kong, 1,649 in Korea (out of about 20,000 Switch games). The rest fill in over later runs.
+
 ## Open ideas, not started
 
-- Hong Kong and Korea eShops (separate catalogs).
 - Americas eShops need Algolia credentials (`NA_SEARCH_*` in `server/.env.example`); off by default.
 - EAS Update for over-the-air app updates, so small app changes don't need a new APK.
 - Merging this branch into `main` once the owner is happy with it.

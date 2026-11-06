@@ -1,0 +1,53 @@
+{
+ "items": [
+  {
+   "sys": {
+    "id": "1541"
+   },
+   "region": "korea",
+   "title": "동키콩 바난자",
+   "nsuid": "70010000096811",
+   "releaseDate": "2025-07-17T00:00:00Z",
+   "softCode": "aaaca",
+   "hardwareCategory": "Nintendo Switch 2",
+   "publisher": "한국닌텐도"
+  },
+  {
+   "sys": {
+    "id": "2939"
+   },
+   "region": "korea",
+   "title": "젤다의 전설 티어스 오브 더 킹덤",
+   "nsuid": "70010000063716",
+   "releaseDate": "2023-05-12T12:00:00Z",
+   "softCode": "AXN7A",
+   "hardwareCategory": "Nintendo Switch",
+   "publisher": "한국닌텐도"
+  },
+  {
+   "sys": {
+    "id": "4658"
+   },
+   "region": "korea",
+   "title": "슈퍼 마리오 오디세이",
+   "nsuid": "70010000009372",
+   "releaseDate": "2017-12-01T12:00:00Z",
+   "softCode": "AAACA",
+   "hardwareCategory": "Nintendo Switch",
+   "publisher": "한국닌텐도"
+  },
+  {
+   "sys": {
+    "id": "560"
+   },
+   "region": "korea",
+   "title": "리듬 천국 미라클 스타즈",
+   "nsuid": "000",
+   "releaseDate": "2026-07-02T00:00:00Z",
+   "softCode": "bflta",
+   "hardwareCategory": "Nintendo Switch",
+   "publisher": "한국닌텐도"
+  }
+ ],
+ "total": 4
+}

@@ -1,0 +1,53 @@
+{
+ "items": [
+  {
+   "sys": {
+    "id": "3660"
+   },
+   "region": "hongkong",
+   "title": "咚奇剛 蕉力全開",
+   "nsuid": "70010000096812",
+   "releaseDate": "2025-07-17T00:00:00Z",
+   "softCode": "aaaca",
+   "hardwareCategory": "Nintendo Switch 2",
+   "publisher": "Nintendo"
+  },
+  {
+   "sys": {
+    "id": "3881"
+   },
+   "region": "hongkong",
+   "title": "薩爾達傳說 王國之淚 Nintendo Switch 2 Edition",
+   "nsuid": "70010000096824",
+   "releaseDate": "2025-06-05T00:00:00Z",
+   "softCode": "axn7a",
+   "hardwareCategory": "Nintendo Switch 2 Edition",
+   "publisher": "Nintendo"
+  },
+  {
+   "sys": {
+    "id": "7265"
+   },
+   "region": "hongkong",
+   "title": "薩爾達傳說 王國之淚",
+   "nsuid": "70010000063717",
+   "releaseDate": "2023-05-12T17:00:00Z",
+   "softCode": "AXN7A",
+   "hardwareCategory": "Nintendo Switch",
+   "publisher": "Nintendo"
+  },
+  {
+   "sys": {
+    "id": "6"
+   },
+   "region": "hongkong",
+   "title": "超級瑪利歐 奧德賽",
+   "nsuid": "70010000009372",
+   "releaseDate": "2017-10-27T17:00:00Z",
+   "softCode": "AAACA",
+   "hardwareCategory": "Nintendo Switch",
+   "publisher": "Nintendo"
+  }
+ ],
+ "total": 4
+}

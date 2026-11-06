@@ -1,6 +1,6 @@
 import { convert, discountPercent, endsSoon, formatMoney, rankByPrice, summarize, timeLeft, withConversion } from '@shared/pricing';
 import { productCore, titleKey } from '@shared/match';
-import { guessHome, steamStoreCountry } from '@shared/regions';
+import { DEFAULT_SWITCH_REGIONS, guessHome, steamStoreCountry, withNewRegions } from '@shared/regions';
 import type { FxRates, RegionPrice } from '@shared/types';
 
 const fx: FxRates = { base: 'USD', rates: { USD: 1, MXN: 20, GBP: 0.8, EUR: 0.9, JPY: 150 }, updatedAt: 0 };
@@ -113,6 +113,13 @@ describe('regions', () => {
     expect(guessHome('PH', 'PHP')).toEqual({ region: 'US', currency: 'PHP' });
     expect(guessHome('IE', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
     expect(guessHome('AT', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
+  });
+
+  it('adds Hong Kong and Korea only to region lists that were never narrowed', () => {
+    const before = DEFAULT_SWITCH_REGIONS.filter((c) => c !== 'HK' && c !== 'KR');
+    expect(withNewRegions(before).slice(-2)).toEqual(['HK', 'KR']);
+    expect(withNewRegions(['GB', 'JP'])).toEqual(['GB', 'JP']);
+    expect(guessHome('HK', 'HKD')).toEqual({ region: 'HK', currency: 'HKD' });
   });
 
   it('picks a Steam store country', () => {

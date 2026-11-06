@@ -45,9 +45,24 @@ export const SWITCH_REGIONS: Region[] = [
   { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', group: 'europe' },
   { code: 'AU', name: 'Australia', flag: '🇦🇺', currency: 'AUD', group: 'europe' },
   { code: 'NZ', name: 'New Zealand', flag: '🇳🇿', currency: 'NZD', group: 'europe' },
-  // Japan
+  // Japan, Hong Kong and South Korea each have their own catalog
   { code: 'JP', name: 'Japan', flag: '🇯🇵', currency: 'JPY', group: 'japan', note: 'Japanese payment methods or gift cards' },
+  { code: 'HK', name: 'Hong Kong', flag: '🇭🇰', currency: 'HKD', group: 'hongkong' },
+  { code: 'KR', name: 'South Korea', flag: '🇰🇷', currency: 'KRW', group: 'korea' },
 ];
+
+/** Regions added after the first release. */
+export const NEW_SWITCH_REGIONS = ['HK', 'KR'];
+
+/**
+ * A saved region list from before the new regions existed. If it had every
+ * older region ticked, it was never narrowed, so the new ones join it. A
+ * narrowed list was a choice and stays as it is.
+ */
+export function withNewRegions(saved: string[]): string[] {
+  const older = SWITCH_REGIONS.map((r) => r.code).filter((c) => !NEW_SWITCH_REGIONS.includes(c));
+  return older.every((c) => saved.includes(c)) ? [...new Set([...saved, ...NEW_SWITCH_REGIONS])] : saved;
+}
 
 /** Steam ties prices to your account country, so this is a comparison view. */
 export const STEAM_REGIONS: { code: string; name: string; flag: string; currency: string }[] = [

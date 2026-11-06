@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getCalendars, getLocales } from 'expo-localization';
-import { DEFAULT_STEAM_REGIONS, DEFAULT_SWITCH_REGIONS, guessHome } from '@shared/regions';
+import { DEFAULT_STEAM_REGIONS, DEFAULT_SWITCH_REGIONS, guessHome, withNewRegions } from '@shared/regions';
 import { persistStorage } from './storage';
 
 export type ThemePref = 'system' | 'dark' | 'light';
@@ -83,9 +83,9 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'gamely.settings',
       storage: persistStorage,
-      version: 4,
-      migrate: (old) =>
-        ({
+      version: 5,
+      migrate: (old, version) => {
+        const s = {
           alertsPrompted: false,
           quietHours: true,
           quietStart: 22,
@@ -96,7 +96,11 @@ export const useSettings = create<SettingsState>()(
           eventMinDiscount: 50,
           serverUrl: '',
           ...(old as object),
-        }) as SettingsState,
+        } as SettingsState;
+        // Version 5 added Hong Kong and South Korea
+        if (version < 5 && Array.isArray(s.switchRegions)) s.switchRegions = withNewRegions(s.switchRegions);
+        return s;
+      },
     },
   ),
 );

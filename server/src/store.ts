@@ -1,9 +1,11 @@
 import { titleKey } from '@shared/match';
 import type { ApiGame, ApiPrice } from '@shared/api';
-import type { Platform, RegionPrice } from '@shared/types';
+import type { Platform, RegionPrice, ShopGroup } from '@shared/types';
 import { all, get, placeholders, run, tx, type Db } from './db';
 
-export type Group = 'americas' | 'europe' | 'japan';
+/** Nintendo's ID groups: games keep one NSUID per group. */
+export type Group = Exclude<ShopGroup, 'steam'>;
+export const GROUPS: Group[] = ['americas', 'europe', 'japan', 'hongkong', 'korea'];
 
 export interface GameRow {
   id: string;
@@ -14,6 +16,9 @@ export interface GameRow {
   publisher: string | null;
   release_date: string | null;
   product_code: string | null;
+  app_id: string | null;
+  code_key: string | null;
+  region_checked_at: number | null;
   store_url: string | null;
   steam_app_id: number | null;
   rank: number | null;
@@ -44,6 +49,7 @@ export interface GameInput {
   publisher?: string;
   releaseDate?: string;
   productCode?: string;
+  appId?: string;
   storeUrl?: string;
   steamAppId?: number;
   rank?: number;
@@ -54,14 +60,15 @@ export interface GameInput {
 export function upsertGame(db: Db, g: GameInput, now = Date.now()) {
   run(
     db,
-    `INSERT INTO games (id, platform, title, title_key, image, publisher, release_date, product_code, store_url, steam_app_id, rank, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO games (id, platform, title, title_key, image, publisher, release_date, product_code, app_id, store_url, steam_app_id, rank, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title, title_key = excluded.title_key,
        image = COALESCE(excluded.image, games.image),
        publisher = COALESCE(excluded.publisher, games.publisher),
        release_date = COALESCE(excluded.release_date, games.release_date),
        product_code = COALESCE(excluded.product_code, games.product_code),
+       app_id = COALESCE(excluded.app_id, games.app_id),
        store_url = COALESCE(games.store_url, excluded.store_url),
        rank = COALESCE(excluded.rank, games.rank),
        updated_at = excluded.updated_at`,
@@ -73,6 +80,7 @@ export function upsertGame(db: Db, g: GameInput, now = Date.now()) {
     g.publisher ?? null,
     g.releaseDate ?? null,
     g.productCode ?? null,
+    g.appId ?? null,
     g.storeUrl ?? null,
     g.steamAppId ?? null,
     g.rank ?? null,
@@ -311,6 +319,7 @@ export function rowToGame(r: GameRow, nsuids?: Partial<Record<Group, string>>): 
     publisher: r.publisher ?? undefined,
     releaseDate: r.release_date ?? undefined,
     productCode: r.product_code ?? undefined,
+    applicationId: r.app_id ?? undefined,
     storeUrl: r.store_url ?? undefined,
     steamAppId: r.steam_app_id ?? undefined,
     nsuids,
@@ -343,6 +352,22 @@ export function sourceError(db: Db, source: string, error: unknown, now = Date.n
     msg.slice(0, 300),
     now,
   );
+}
+
+/* -------------------------------- job runs -------------------------------- */
+
+export function lastRun(db: Db, name: string): number | undefined {
+  return get<{ last_ok: number }>(db, 'SELECT last_ok FROM job_runs WHERE name = ?', name)?.last_ok;
+}
+
+export function markRun(db: Db, name: string, now = Date.now()) {
+  run(db, 'INSERT INTO job_runs (name, last_ok) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET last_ok = excluded.last_ok', name, now);
+}
+
+/** True when a job hasn't finished within its interval, including never. */
+export function isOverdue(db: Db, name: string, every: number, now = Date.now()): boolean {
+  const t = lastRun(db, name);
+  return t === undefined || now - t >= every;
 }
 
 export { tx };

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { parsePriceResponse } from '../src/sources/nintendo/prices';
 import { euDocToGame, euPlatform } from '../src/sources/nintendo/catalogEu';
 import { usHitToGame } from '../src/sources/nintendo/catalogUs';
-import { pickJapanMatch } from '../src/sources/nintendo/catalogJp';
 
 describe('eShop price parsing', () => {
   it('reads regular and sale prices', () => {
@@ -84,17 +83,6 @@ describe('Americas catalog', () => {
     expect(g.image).toMatch(/^https:\/\/assets\.nintendo\.com\/.*mario-kart-world$/);
     expect(g.listPrice?.sale?.amount).toBe(59.99);
     expect(g.listPrice?.discountPercent).toBe(25);
-  });
-});
-
-describe('Japan matching', () => {
-  it('matches by product code core', () => {
-    const items = [
-      { nsuid: '70010000011111', pcode: 'HACPZZZZJ' },
-      { nsuid: '70010000022222', pcode: 'HACPAAAAJ' },
-    ];
-    expect(pickJapanMatch(items, 'HACPAAAAB')).toBe('70010000022222');
-    expect(pickJapanMatch(items, 'HACPQQQQB')).toBeUndefined();
   });
 });
 

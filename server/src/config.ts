@@ -16,6 +16,10 @@ export const config = {
     nintendoPrice: env.UPSTREAM_NINTENDO_PRICE ?? 'https://api.ec.nintendo.com/v1/price',
     nintendoEuSearch: env.UPSTREAM_NINTENDO_EU ?? 'https://searching.nintendo-europe.com/en/select',
     nintendoJpSearch: env.UPSTREAM_NINTENDO_JP ?? 'https://search.nintendo.jp/nintendo_soft/search.json',
+    /** Nintendo's Hong Kong and Korea sites, for their software lists */
+    nintendoSite: env.UPSTREAM_NINTENDO_SITE ?? 'https://www.nintendo.com',
+    /** The web eShop, for application IDs on Hong Kong title pages */
+    nintendoEshopWeb: env.UPSTREAM_NINTENDO_ESHOP_WEB ?? 'https://ec.nintendo.com',
     steamStore: env.UPSTREAM_STEAM_STORE ?? 'https://store.steampowered.com',
     steamApi: env.UPSTREAM_STEAM_API ?? 'https://api.steampowered.com',
     /** European Central Bank reference rates, served by Frankfurter */
@@ -56,6 +60,16 @@ export const config = {
   refreshOnViewAfterMs: num(env.REFRESH_ON_VIEW_MIN, 180) * MIN,
   /** Only trust X-Forwarded-For when a proxy you run sets it (e.g. Fly, Render) */
   trustProxy: env.TRUST_PROXY === '1',
+  /**
+   * Japan's catalog: newest pages on every catalog run, the whole list once
+   * a week. Hong Kong title pages fetched per run to confirm a match by
+   * application ID (about 80 KB each, and each page is only ever fetched once).
+   */
+  regions: {
+    recentPages: num(env.REGION_RECENT_PAGES, 3),
+    fullEveryMs: num(env.REGION_FULL_DAYS, 7) * 24 * 60 * MIN,
+    titlePagesPerRun: num(env.REGION_TITLE_PAGES, 250),
+  },
   /** Cap per device, so one install can't turn the 10-minute refresh into a full sweep */
   maxWatchesPerDevice: num(env.MAX_WATCHES, 300),
 };

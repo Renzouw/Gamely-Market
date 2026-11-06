@@ -23,7 +23,7 @@ There are two parts:
 
 - **Prices come only from the stores.** Nintendo's own eShop price endpoint (the price charged at checkout) and Steam's store APIs. Catalog listings are only used to find games, never for prices.
 - **Exchange rates come from the European Central Bank.** The few currencies the ECB doesn't publish (ARS, CLP, COP, PEN and a handful more) use a market rate, and the app says so.
-- **Cross-region matching is strict.** Nintendo gives each regional group its own game IDs. We only link two listings when the product code matches, or the title matches and the publisher or release date agrees too. If we're not sure, we leave the region out and the app says so, rather than show the wrong game's price.
+- **Cross-region matching is strict.** Nintendo gives each regional group its own game IDs. We only link two listings when the product code matches, or the title matches and the publisher or release date agrees too. Japan, Hong Kong and South Korea list games in their own languages, so there titles never count: a game is linked only by its product code plus platform, or by its worldwide application ID (read from Hong Kong's eShop page when Europe has no product code). If we're not sure, we leave the region out and the app says so, rather than show the wrong game's price.
 - **Outages don't look like price changes.** If a store doesn't answer, we keep the last confirmed price and flag it as stale after 36 hours. A price is only removed when the store says the game is no longer sold there.
 - **Ended sales disappear on time.** A sale is hidden the moment its end time passes, even before the next check.
 - **Freshness is visible.** Lists and game pages say when prices were last confirmed. Settings › Data sources shows the health of every source.
@@ -184,7 +184,7 @@ DESIGN.md           colours, type, components and motion
 ## Known limits
 
 - **Lightly tested against the live stores.** The first live run on a real PC fetched over 5,000 prices with no errors, but most testing used sample responses and a fake store, because the development sandbox can't reach Nintendo, Steam, the ECB or Expo. If a store renames a field, each adapter keeps its field names in one place.
-- **Hong Kong and Korea eShops** use separate catalogs and aren't covered yet.
+- **Japan, Hong Kong and Korea fill in over a few weeks.** Games with a product code link on the first catalog run. Games without one (most Switch 2 games in Europe's catalog) need one Hong Kong eShop page read each, at most 250 pages per run, watched games first, then games on sale, then popular ones. Without the server, the phone prices these three regions only for games the server already matched.
 - **Steam regional prices are for comparison.** Steam charges your account country's price, and the app says so.
 
 Gamely isn't affiliated with Nintendo or Valve.

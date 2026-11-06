@@ -5,8 +5,10 @@
  * which mode they're in.
  *
  * What's different from the server: Americas eShops need the server's
- * catalog, so they're left out; Japan is matched only on game pages; price
- * history is what this phone has seen.
+ * catalog, so they're left out. Japan, Hong Kong and Korea are matched by
+ * the server from catalogs too big for a phone, so they're priced only for
+ * games whose IDs there the phone already got from the server (watchlist,
+ * recently viewed). Price history is what this phone has seen.
  */
 import type { ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiPrice, DealQuery } from '@shared/api';
 import { dailyBest } from '@shared/history';
@@ -16,18 +18,14 @@ import { FX_FALLBACK, FX_PRIMARY, mergeFx, quotesToRates, type ErApiResponse, ty
 import {
   euByNsuidQuery,
   euSearchQuery,
-  jpSearchQuery,
   NINTENDO_EU_SEARCH,
-  NINTENDO_JP_SEARCH,
   NINTENDO_PRICE,
   parseEuResponse,
   parsePriceResponse,
-  pickJapanMatch,
   PRICE_BATCH,
   priceQuery,
   type EuResponse,
   type EuSort,
-  type JpResponse,
   type RawPriceResponse,
 } from '@shared/stores/nintendo';
 import {
@@ -43,7 +41,7 @@ import {
   type SteamSort,
   type StoreSearchResponse,
 } from '@shared/stores/steam';
-import type { FxRates, Game, RegionPrice } from '@shared/types';
+import type { FxRates, Game, RegionPrice, ShopGroup } from '@shared/types';
 import { chunk, getJson, qs, StoreError } from './http';
 import { localLows, useLocalHistory } from './history';
 
@@ -97,20 +95,12 @@ async function countryPrices(country: string, nsuids: string[]): Promise<Map<str
   return out;
 }
 
-const jpCache = new Map<string, string | null>();
-async function japanNsuid(productCode?: string): Promise<string | undefined> {
-  if (!productCode) return undefined;
-  if (jpCache.has(productCode)) return jpCache.get(productCode) ?? undefined;
-  const q = jpSearchQuery(productCode);
-  if (!q) return undefined;
-  try {
-    const data = await getJson<JpResponse>(`${NINTENDO_JP_SEARCH}?${qs(q)}`);
-    const id = pickJapanMatch(data.result?.items ?? [], productCode);
-    jpCache.set(productCode, id ?? null);
-    return id;
-  } catch {
-    return undefined;
-  }
+/** Groups with their own IDs that only the server can match. */
+const SERVER_MATCHED = ['japan', 'hongkong', 'korea'] as const satisfies readonly Exclude<ShopGroup, 'steam'>[];
+
+/** Countries this person compares in those groups. */
+function serverMatchedRegions(ctx: DirectContext) {
+  return SWITCH_REGIONS.filter((r) => (SERVER_MATCHED as readonly string[]).includes(r.group) && ctx.switchRegions.includes(r.code));
 }
 
 /* ---------------------------------- Steam ---------------------------------- */
@@ -145,11 +135,9 @@ export async function directPrices(games: Pick<Game, 'key' | 'platform' | 'nsuid
 
   // Switch: one request per country covers up to 50 games
   const byNsuid = new Map<string, string>();
-  const byJp = new Map<string, string>();
   for (const g of games) {
     if (g.platform === 'steam') continue;
     if (g.nsuids?.europe) byNsuid.set(g.nsuids.europe, g.key);
-    if (g.nsuids?.japan) byJp.set(g.nsuids.japan, g.key);
   }
   const add = (key: string | undefined, p: RegionPrice) => key && out.get(key)?.push(stamp(p, now));
   if (byNsuid.size) {
@@ -157,8 +145,14 @@ export async function directPrices(games: Pick<Game, 'key' | 'platform' | 'nsuid
       tasks.push(countryPrices(c, [...byNsuid.keys()]).then((m) => (m.forEach((p, id) => add(byNsuid.get(id), p)), true), () => false));
     }
   }
-  if (byJp.size && ctx.switchRegions.includes('JP')) {
-    tasks.push(countryPrices('JP', [...byJp.keys()]).then((m) => (m.forEach((p, id) => add(byJp.get(id), p)), true), () => false));
+  // Japan, Hong Kong, Korea: only for games the server already matched there
+  for (const r of serverMatchedRegions(ctx)) {
+    const ids = new Map<string, string>();
+    for (const g of games) {
+      const id = g.platform !== 'steam' ? g.nsuids?.[r.group] : undefined;
+      if (id) ids.set(id, g.key);
+    }
+    if (ids.size) tasks.push(countryPrices(r.code, [...ids.keys()]).then((m) => (m.forEach((p, id) => add(ids.get(id), p)), true), () => false));
   }
 
   // Steam: one request per country covers up to 40 games
@@ -252,16 +246,11 @@ export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRa
   const game = known ?? (await lookupGame(key));
   if (!game) throw new StoreError('This game needs your Gamely server, which isn’t reachable right now.');
 
-  // Japan is matched on demand, by product code
-  let unmatched: ApiGameDetail['unmatched'] = [];
-  let withJp = game;
-  if (game.platform !== 'steam' && ctx.switchRegions.includes('JP') && !game.nsuids?.japan) {
-    const jp = await japanNsuid(game.productCode);
-    if (jp) withJp = { ...game, nsuids: { ...game.nsuids, japan: jp } };
-    else unmatched = ['japan'];
-  }
+  // Without the server we can't look a game up in Japan, Hong Kong or Korea
+  const unmatched: ApiGameDetail['unmatched'] =
+    game.platform === 'steam' ? [] : [...new Set(serverMatchedRegions(ctx).map((r) => r.group))].filter((grp) => !game.nsuids?.[grp]);
 
-  const prices = (await directPrices([withJp], ctx)).get(key) ?? [];
+  const prices = (await directPrices([game], ctx)).get(key) ?? [];
   const history = useLocalHistory.getState();
   history.record(key, prices);
   const rec = useLocalHistory.getState().games[key];
@@ -274,7 +263,7 @@ export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRa
     if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
   }
   return {
-    game: toApiGame(withJp, prices),
+    game: toApiGame(game, prices),
     prices,
     lows,
     history: dailyBest(rows, ctx.currency, fx),

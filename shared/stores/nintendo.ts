@@ -3,12 +3,10 @@
  * server and the app's phone-only mode. No network code lives here.
  */
 import { discountPercent } from '../pricing';
-import { productCore } from '../match';
 import type { Game, Platform, RegionPrice } from '../types';
 
 export const NINTENDO_EU_SEARCH = 'https://searching.nintendo-europe.com/en/select';
 export const NINTENDO_PRICE = 'https://api.ec.nintendo.com/v1/price';
-export const NINTENDO_JP_SEARCH = 'https://search.nintendo.jp/nintendo_soft/search.json';
 const STORE_BASE = 'https://www.nintendo.com/en-gb';
 
 /* ------------------------------ Europe catalog ------------------------------ */
@@ -46,6 +44,8 @@ export interface EuDoc {
   system_names_txt?: string[];
   popularity?: number;
   price_has_discount_b?: boolean;
+  /** The application ID, the same in every region. See nintendoRegions.ts. */
+  application_id_s?: string;
 }
 
 export interface EuResponse {
@@ -76,6 +76,7 @@ export function euDocToGame(doc: EuDoc): Game | undefined {
     releaseDate: doc.dates_released_dts?.[0],
     nsuids: { europe: nsuid },
     productCode: doc.product_code_txt?.[0],
+    applicationId: doc.application_id_s?.toLowerCase(),
     popularity: doc.popularity,
     storeUrl: doc.url ? `${STORE_BASE}${doc.url}` : undefined,
   };
@@ -187,29 +188,4 @@ export function parsePriceResponse(country: string, data: RawPriceResponse, now 
     });
   }
   return { prices, gone };
-}
-
-/* ------------------------------- Japan search ------------------------------ */
-
-export interface JpItem {
-  nsuid?: string;
-  title?: string;
-  pcode?: string;
-  icode?: string;
-}
-
-export interface JpResponse {
-  result?: { items?: JpItem[] };
-}
-
-export function pickJapanMatch(items: JpItem[], productCode: string): string | undefined {
-  const want = productCore(productCode);
-  if (!want) return undefined;
-  const hit = items.find((it) => it.nsuid && productCore(it.pcode ?? it.icode) === want);
-  return hit?.nsuid;
-}
-
-export function jpSearchQuery(productCode: string) {
-  const core = productCore(productCode);
-  return core ? { q: core.slice(3), limit: 30, page: 1 } : undefined;
 }

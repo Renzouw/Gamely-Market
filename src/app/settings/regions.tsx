@@ -7,10 +7,10 @@ import { useSettings } from '../../state/settings';
 import { space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
-const GROUPS: { id: Region['group']; label: string }[] = [
-  { id: 'americas', label: 'Americas' },
-  { id: 'europe', label: 'Europe, Oceania & South Africa' },
-  { id: 'japan', label: 'Japan' },
+const GROUPS: { id: string; label: string; groups: Region['group'][] }[] = [
+  { id: 'americas', label: 'Americas', groups: ['americas'] },
+  { id: 'europe', label: 'Europe, Oceania & South Africa', groups: ['europe'] },
+  { id: 'asia', label: 'Japan, Hong Kong & South Korea', groups: ['japan', 'hongkong', 'korea'] },
 ];
 
 function CheckRow({ label, detail, checked, onPress, first, locked }: { label: string; detail?: string; checked: boolean; onPress: () => void; first?: boolean; locked?: boolean }) {
@@ -50,7 +50,7 @@ export default function RegionsScreen() {
       </Text>
 
       {GROUPS.map((g) => {
-        const regions = SWITCH_REGIONS.filter((r) => r.group === g.id);
+        const regions = SWITCH_REGIONS.filter((r) => g.groups.includes(r.group));
         const allOn = regions.every((r) => s.switchRegions.includes(r.code));
         const off = g.id === 'americas' && americasOff;
         return (

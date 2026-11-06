@@ -1,7 +1,7 @@
 export type Platform = 'switch2' | 'switch' | 'steam';
 
 /** Nintendo eShops share game IDs (NSUIDs) inside these groups. */
-export type ShopGroup = 'americas' | 'europe' | 'japan' | 'steam';
+export type ShopGroup = 'americas' | 'europe' | 'japan' | 'hongkong' | 'korea' | 'steam';
 
 export interface Money {
   /** Price in major units, e.g. 59.99 */
@@ -45,6 +45,8 @@ export interface Game {
   nsuids?: Partial<Record<Exclude<ShopGroup, 'steam'>, string>>;
   /** Switch only, e.g. "HACPAAAAA". Helps match the same game across regions. */
   productCode?: string;
+  /** Switch only: Nintendo's application ID, the same in every region */
+  applicationId?: string;
   /** Steam only */
   steamAppId?: number;
   /** Price in the region the listing came from, if the listing source included one */
