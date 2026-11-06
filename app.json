@@ -2,7 +2,7 @@
   "expo": {
     "name": "Gamely",
     "slug": "gamely",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -52,7 +52,8 @@
             "enableMinifyInReleaseBuilds": false
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

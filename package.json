@@ -1,6 +1,6 @@
 {
   "name": "gamely",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
@@ -30,6 +30,7 @@
     "expo-system-ui": "~58.0.7",
     "expo-task-manager": "~58.0.13",
     "expo-updates": "~58.0.21",
+    "expo-web-browser": "~58.0.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
