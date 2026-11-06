@@ -30,7 +30,13 @@ export const config = {
   },
 
   /** Optional Americas catalog. See README. */
+  /**
+   * Americas catalog. On by default, using the search key Nintendo's US
+   * store page uses (see catalogUs.ts). NA_SEARCH_APP_ID/API_KEY override it;
+   * AMERICAS=off turns the Americas off.
+   */
   naSearch: {
+    enabled: (env.AMERICAS ?? 'on').toLowerCase() !== 'off',
     appId: env.NA_SEARCH_APP_ID ?? '',
     apiKey: env.NA_SEARCH_API_KEY ?? '',
     index: env.NA_SEARCH_INDEX || 'store_game_en_us',
@@ -74,4 +80,4 @@ export const config = {
   maxWatchesPerDevice: num(env.MAX_WATCHES, 300),
 };
 
-export const americasEnabled = () => Boolean(config.naSearch.appId && config.naSearch.apiKey);
+export const americasEnabled = () => config.naSearch.enabled;

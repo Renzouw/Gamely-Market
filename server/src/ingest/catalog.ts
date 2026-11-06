@@ -3,7 +3,7 @@ import type { Game, Platform } from '@shared/types';
 import { americasEnabled } from '../config';
 import type { Db } from '../db';
 import { searchEu } from '../sources/nintendo/catalogEu';
-import { searchUs } from '../sources/nintendo/catalogUs';
+import { fetchUsCatalog, searchUs } from '../sources/nintendo/catalogUs';
 import { listSteamDeals } from '../sources/steam';
 import { recordSaleCount } from '../events/run';
 import { attachNsuid, gameIdForNsuid, matchCandidates, sourceError, sourceOk, tx, upsertGame, type Group } from '../store';
@@ -17,6 +17,7 @@ type SwitchPlatform = Exclude<Platform, 'steam'>;
  */
 export function ingestSwitchEntry(db: Db, grp: Group, nsuid: string, g: Game, rank?: number): string {
   const known = gameIdForNsuid(db, grp, nsuid);
+  const prefix = `sw:${grp === 'europe' ? 'eu' : grp === 'americas' ? 'us' : 'jp'}:`;
   const meta = {
     platform: g.platform,
     title: g.title,
@@ -29,17 +30,19 @@ export function ingestSwitchEntry(db: Db, grp: Group, nsuid: string, g: Game, ra
     rank,
   };
   if (known) {
-    upsertGame(db, { id: known, ...meta });
+    // A game first listed by another region keeps that region's popularity rank,
+    // so the two catalogs don't overwrite each other's on every sync
+    upsertGame(db, { id: known, ...meta, rank: known.startsWith(prefix) ? rank : undefined });
     return known;
   }
   const match = pickMatch(g, matchCandidates(db, g.platform, titleKey(g.title), grp));
   if (match) {
-    // Keep the existing game's id and title; only fill in gaps.
-    upsertGame(db, { ...meta, id: match.game.id, title: match.game.title, storeUrl: match.game.store_url ?? g.storeUrl, rank: rank ?? match.game.rank ?? undefined });
+    // Keep the existing game's id, title and rank; only fill in gaps.
+    upsertGame(db, { ...meta, id: match.game.id, title: match.game.title, storeUrl: match.game.store_url ?? g.storeUrl, rank: match.game.rank ?? rank });
     attachNsuid(db, grp, nsuid, match.game.id, match.method);
     return match.game.id;
   }
-  const id = `sw:${grp === 'europe' ? 'eu' : grp === 'americas' ? 'us' : 'jp'}:${nsuid}`;
+  const id = `${prefix}${nsuid}`;
   upsertGame(db, { id, ...meta });
   attachNsuid(db, grp, nsuid, id, 'source');
   return id;
@@ -90,6 +93,26 @@ export async function syncUsCatalog(db: Db, o: SyncOpts): Promise<string[]> {
       if ((page + 1) * pageSize >= total || games.length === 0) break;
     }
     sourceOk(db, 'nintendo-us-catalog', ids.length);
+  } catch (e) {
+    sourceError(db, 'nintendo-us-catalog', e);
+  }
+  return ids;
+}
+
+/**
+ * The whole Americas catalog, both platforms, in slices (a single search
+ * stops at 1,000 results). Games already known from Europe are linked by
+ * the usual strict rule; the rest become Americas-only games.
+ */
+export async function syncUsFullCatalog(db: Db): Promise<string[]> {
+  if (!americasEnabled()) return [];
+  const ids: string[] = [];
+  try {
+    const res = await fetchUsCatalog((games) =>
+      tx(db, () => games.forEach((g) => ids.push(ingestSwitchEntry(db, 'americas', g.nsuids!.americas!, g, g.popularity)))),
+    );
+    sourceOk(db, 'nintendo-us-catalog', ids.length);
+    if (res.truncated) console.log(new Date().toISOString(), `americas: ${res.truncated} games couldn't be read (a slice had over 1,000)`);
   } catch (e) {
     sourceError(db, 'nintendo-us-catalog', e);
   }

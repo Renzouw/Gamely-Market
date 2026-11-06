@@ -1,7 +1,7 @@
 import { config } from './config';
 import { all, get, run, type Db } from './db';
 import { queueEndingAlerts, refreshAndAlert } from './alerts/run';
-import { discoverSteamDeals, syncEuCatalog, syncUsCatalog } from './ingest/catalog';
+import { discoverSteamDeals, syncEuCatalog, syncUsCatalog, syncUsFullCatalog } from './ingest/catalog';
 import { invalidateFx, syncFx } from './ingest/fx';
 import { linkRegions, syncRegionCatalogs } from './ingest/regions';
 import { isOverdue, markRun } from './store';
@@ -67,10 +67,8 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
 
   /** Full catalogs, then Japan, Hong Kong and Korea, then price whatever got newly linked. */
   async function catalog() {
-    for (const platform of ['switch2', 'switch'] as const) {
-      await syncEuCatalog(db, { platform, onSaleOnly: false });
-      await syncUsCatalog(db, { platform, onSaleOnly: false });
-    }
+    for (const platform of ['switch2', 'switch'] as const) await syncEuCatalog(db, { platform, onSaleOnly: false });
+    await syncUsFullCatalog(db);
     await syncRegionCatalogs(db);
     const linked = await linkRegions(db);
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong or Korea`);

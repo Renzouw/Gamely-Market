@@ -171,7 +171,7 @@ Then in the app, turn on alerts in Settings. If a test alert doesn't arrive, `np
 
 ### Americas catalog
 
-Nintendo of America has no open catalog endpoint like Europe does. Their store search runs on Algolia, so the Americas are off unless the server is given search credentials (`NA_SEARCH_*` in `server/.env.example`). Without them, the US, Canada, Mexico, Brazil and other Americas eShops are left out, and the app says so in Settings › Data sources. Check Nintendo's terms before you use any credentials you didn't get from them directly.
+Nintendo of America has no open catalog endpoint like Europe does. Their store search runs on Algolia, and the server uses the same search-only key Nintendo's US store page uses in every visitor's browser, read from that page (and read again if Nintendo changes it). The owner chose this on 2026-11-06, knowing the key is Nintendo's website's, not ours. A search returns at most 1,000 results, so the server reads the catalog in slices by price, then age rating and player count: about 20,000 games in a few hundred requests, once per catalog run. US games have no product code, so they're linked to the European listing by the strict title rule (title plus publisher or a close release date). To use other credentials set `NA_SEARCH_APP_ID` and `NA_SEARCH_API_KEY`; to turn the Americas off, set `AMERICAS=off` in `server/.env`. Phone-only mode can't reach the Americas: it needs the server's catalog.
 
 ## Project layout
 

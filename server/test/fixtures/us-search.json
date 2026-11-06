@@ -1,0 +1,64 @@
+{
+ "results": [
+  {
+   "hits": [
+    {
+     "objectID": "7100096809",
+     "title": "Donkey Kong™ Bananza",
+     "nsuid": "70010000096809",
+     "url": "/us/store/products/donkey-kong-bananza-switch-2/",
+     "productImage": "store/software/switch2/70010000096809/3c8219fbdcd3bdd0ebd6239cf32c651fe10f2157aa7730fcc6a7d96cd27460e5",
+     "softwarePublisher": "Nintendo",
+     "releaseDate": "2025-07-17T00:00:00.000Z",
+     "platform": "Nintendo Switch 2",
+     "corePlatforms": [
+      "Nintendo Switch 2"
+     ],
+     "popularityRank": 14,
+     "contentRatingCode": "E10",
+     "playerCount": "2+",
+     "topLevelFilters": [
+      "Demo available",
+      "Games with DLC"
+     ],
+     "price": {
+      "finalPrice": 69.99,
+      "regPrice": 69.99,
+      "discounted": false,
+      "salePrice": null,
+      "amountOff": null,
+      "percentOff": null
+     }
+    },
+    {
+     "objectID": "7700030721",
+     "title": "Donkey Kong™ Bananza Bundle (game + DK Island & Emerald Rush DLC)",
+     "nsuid": "70070000030721",
+     "url": "/us/store/products/donkey-kong-bananza-bundle-game-plus-dk-island-and-emerald-rush-dlc-switch-2/",
+     "productImage": "store/software/switch2/70070000030721/ce4f1cde1eca93f07249754c4b4b97ddf2a9b8fd1f795e1ec7e937a95fd45e7a",
+     "softwarePublisher": "Nintendo",
+     "releaseDate": "2025-09-12T00:00:00.000Z",
+     "platform": "Nintendo Switch 2",
+     "corePlatforms": [
+      "Nintendo Switch 2"
+     ],
+     "popularityRank": null,
+     "contentRatingCode": "E10",
+     "playerCount": "2+",
+     "topLevelFilters": [
+      "Games with DLC"
+     ],
+     "price": {
+      "finalPrice": 89.98,
+      "regPrice": 89.98,
+      "discounted": false,
+      "salePrice": null,
+      "amountOff": null,
+      "percentOff": null
+     }
+    }
+   ],
+   "nbHits": 2
+  }
+ ]
+}

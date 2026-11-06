@@ -22,6 +22,7 @@ Gamely was built in a cloud Claude Code session and moved to a local project on 
 | --- | --- |
 | App and server tests, lint, typecheck | Passing (41 app tests, 84 server tests). The app smoke tests have a 60 s timeout because a cold Jest cache takes over 5 s to load every screen |
 | Over-the-air updates (2026-11-06) | Set up: `expo-updates`, channel `preview`, runtime version = app `version` (1.0.0). APKs built before this can't receive updates; the first APK with it needs installing once. Publish with `npm run update:app` |
+| Americas (2026-11-06) | On, with the search key from Nintendo's US store page (the owner's choice; see README "Americas catalog"). Dry run: 18,694 European games linked to their US listing, 1,101 Americas-only games; Bananza US $69.99. `AMERICAS=off` in `server/.env` turns it off |
 | Japan, Hong Kong, Korea (2026-11-06) | Checked live on the PC. Donkey Kong Bananza priced in JP (¥7,980), HK (HKD 449) and KR (₩79,800). See "Asian eShops" below |
 | Server against the live stores | One live run on the PC: over 5,000 prices fetched, no errors |
 | Server auto-start on Windows | Confirmed working |
@@ -42,7 +43,6 @@ Japan was never matched before 2026-11-06, for three reasons: the old lookup sea
 
 ## Open ideas, not started
 
-- Americas eShops need Algolia credentials (`NA_SEARCH_*` in `server/.env.example`); off by default.
 - Merging this branch into `main` once the owner is happy with it.
 
 ## Where to read more
