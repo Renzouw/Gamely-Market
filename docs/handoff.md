@@ -44,6 +44,12 @@ Japan was never matched before 2026-11-06, for three reasons: the old lookup sea
 ## Open ideas, not started
 
 - Merging this branch into `main` once the owner is happy with it.
+- **A free always-on cloud server (paused 2026-11-06, the owner's call: "use the PC server for now").** Where it stands:
+  - Chosen: Oracle Cloud Always Free, home region Singapore (`ap-singapore-1`), the `VM.Standard.E2.1.Micro` AMD shape (its public IPv4 is included free; 10 TB/month outbound). Google Cloud was ruled out: its free e2-micro is free but an in-use external IPv4 costs $0.005/hour (about $3.65/month, free allowance one hour a month).
+  - Blocked on sign-up: Oracle doesn't accept prepaid or virtual cards (its FAQ), so the owner's Maya card was refused and GCash won't work either. Wise is hit-and-miss. A bank credit/debit card is the reliable route. Repeated failed card attempts can get a sign-up auto-rejected, so try once per card.
+  - Agreed plan for charges: stay on the free account (it can't bill) and add a small budget alert; don't upgrade to Pay As You Go unless Oracle actually reclaims the idle server.
+  - Already on the PC: Oracle's CLI in `%USERPROFILE%\.oci-cli-venv` (run `oci setup bootstrap --region <region>` once the account exists; the owner signs in in the browser), and an SSH key at `~/.ssh/gamely_oracle`.
+  - Still to do: create the VCN, subnet, security list (22/80/443) and the Micro instance (Ubuntu); install Node, clone the repo (public), build the server, systemd service, HTTPS with Caddy and an `<ip>.sslip.io` name; copy `server/data/gamely.db` and `server/.env` from the PC (stop the PC server first); point the app at the https address (`EXPO_PUBLIC_API_URL`, then `npm run update:app`); turn off PC auto-start (`npm run autostart:off`) so alerts aren't sent twice; add a deploy command and update the "ship" steps in `AGENTS.md`.
 
 ## Where to read more
 
