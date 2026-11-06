@@ -52,4 +52,6 @@ Gamely compares game prices across Nintendo eShop regions and Steam. Two parts:
 
 - Local tooling (`scripts/`): `setup`, `autostart` (server at login), `update` / `autoupdate` (fast-forward pulls from GitHub; `local-config.mjs` keeps the Expo project link and `google-services.json` across updates), `build-app` (EAS, helpers in `eas.mjs`), `setup-push` (Firebase project, `google-services.json` and the FCM V1 key upload).
 
+- Start with `docs/handoff.md`: what is verified, what is running on the owner's PC, and how they like to work.
+
 Before you finish: `npm test && npm run typecheck` at the root, and `npm test && npm run typecheck` in `server/`.
