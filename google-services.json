@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "891982689481",
+    "project_id": "gamely-baik6i",
+    "storage_bucket": "gamely-baik6i.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:891982689481:android:7f7b58ed81b76360368918",
+        "android_client_info": {
+          "package_name": "com.gamely.market"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoG66coeb5wTudXYS36F4uWaZgZIOeSsQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
