@@ -8,6 +8,7 @@ import { formatMoney } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { Platform } from '@shared/types';
 import { errorText } from '../../api/client';
+import { CountryChip, useCountry } from '../../components/CountryFilter';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
@@ -57,12 +58,21 @@ export default function DealsScreen() {
   const [big, setBig] = useState(false);
   const [cheap, setCheap] = useState(false);
   const [abroad, setAbroad] = useState(false);
+  const [countryCode, setCountry] = useState<string>();
   const isSteam = platform === 'steam';
+  // Steam charges your account's country, so there's no picking another one
+  const country = useCountry(isSteam ? undefined : countryCode);
   const limit = cheapLimit(prefs.currency);
 
   const filters = useMemo<DealFilters>(
-    () => ({ minDiscount: big ? 50 : undefined, maxPrice: cheap ? limit : undefined, abroad: abroad && !isSteam ? 0.15 : undefined }),
-    [big, cheap, abroad, limit, isSteam],
+    () => ({
+      minDiscount: big ? 50 : undefined,
+      maxPrice: cheap ? limit : undefined,
+      // Cheaper abroad compares with home, which doesn't apply to a single eShop
+      abroad: abroad && !isSteam && !country ? 0.15 : undefined,
+      country: country?.code,
+    }),
+    [big, cheap, abroad, limit, isSteam, country],
   );
   const q = useDeals(platform, sort, filters);
   const mode = useDataMode();
@@ -73,7 +83,11 @@ export default function DealsScreen() {
     : new Set([...prefs.switchRegions, prefs.home]).size;
   const sortLabel = SORTS.find((s) => s.value === sort)!.label;
 
-  const subtitle = isSteam ? `Steam ${steamStoreCountry(prefs.home).code} store, in ${prefs.currency}` : `Best of ${regionCount} eShops, in ${prefs.currency}`;
+  const subtitle = isSteam
+    ? `Steam ${steamStoreCountry(prefs.home).code} store, in ${prefs.currency}`
+    : country
+      ? `${country.flag} ${country.name} eShop only, in ${prefs.currency}`
+      : `Best of ${regionCount} eShops, in ${prefs.currency}`;
   const freshness = ago(q.checkedAt);
 
   const renderItem = useCallback(({ item }: { item: ApiListItem }) => <GameRow game={item.game} prices={item.prices} />, []);
@@ -124,16 +138,17 @@ export default function DealsScreen() {
       ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
         <Chip label={sortLabel} trailing="chevron-down" onPress={() => setSortOpen(true)} />
+        {!isSteam ? <CountryChip value={country?.code} onChange={setCountry} /> : null}
         <View style={[styles.divider, { backgroundColor: c.line }]} />
         <Chip label="50% off or more" active={big} onPress={() => setBig((v) => !v)} />
         <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
-        {!isSteam ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
+        {!isSteam && !country ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
       </ScrollView>
       {q.total !== undefined && q.items.length ? (
         <Text variant="caption" tone="subtle" style={styles.count}>
           {isSteam
             ? `The ${q.total.toLocaleString()} most popular Steam games on sale`
-            : `${q.total.toLocaleString()} ${q.total === 1 ? 'game' : 'games'} on sale`}
+            : `${q.total.toLocaleString()} ${q.total === 1 ? 'game' : 'games'} on sale${country ? ` in ${country.name}` : ''}`}
         </Text>
       ) : null}
     </View>
@@ -151,11 +166,11 @@ export default function DealsScreen() {
             <RowSkeleton />
           ) : q.isError ? (
             <EmptyState title="Couldn’t load deals" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
-          ) : big || cheap || abroad ? (
+          ) : big || cheap || abroad || country ? (
             <EmptyState
               title="Nothing matches"
-              body="No current sales fit those filters. Try removing one."
-              action={{ label: 'Clear filters', onPress: () => (setBig(false), setCheap(false), setAbroad(false)) }}
+              body={country && !big && !cheap ? `Nothing is on sale in the ${country.name} eShop right now.` : 'No current sales fit those filters. Try removing one.'}
+              action={{ label: 'Clear filters', onPress: () => (setBig(false), setCheap(false), setAbroad(false), setCountry(undefined)) }}
             />
           ) : (
             <EmptyState title="No sales right now" body="Nothing is discounted in your regions at the moment. We check every few minutes." />

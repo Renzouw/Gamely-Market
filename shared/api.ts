@@ -40,6 +40,8 @@ export interface DealQuery {
   maxPrice?: number;
   /** Only games at least this much cheaper abroad than at home (0.15 = 15%) */
   abroad?: number;
+  /** Switch only: just this one eShop. Deals on sale there, priced there, regardless of `regions`. */
+  country?: string;
   cursor?: string;
   limit?: number;
 }

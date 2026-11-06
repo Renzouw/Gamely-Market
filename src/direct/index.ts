@@ -199,14 +199,20 @@ export async function directDeals(q: DealQuery, ctx: DirectContext, fx: FxRates 
     const total = data.total_count ?? games.length;
     return { items: rankPage(items, q, fx, store.code, new Set([store.code])), total, nextCursor: query.start + games.length < total ? String(page + 1) : undefined, checkedAt: now };
   }
+  // One country picked: only that eShop counts, as on the server
+  const c = q.country ? onlyCountry(ctx, q.country) : ctx;
   const { games, total } = await searchEu({ platform: q.platform, onSale: true, sort: EU_SORT[q.sort], page, pageSize: PAGE });
-  const prices = await directPrices(games, ctx);
+  const prices = await directPrices(games, c);
   const items = games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }));
-  const countries = new Set(directSwitchCountries(ctx));
-  return { items: rankPage(items, q, fx, ctx.home, countries), total, nextCursor: (page + 1) * PAGE < total ? String(page + 1) : undefined, checkedAt: now };
+  const countries = new Set(directSwitchCountries(c));
+  return { items: rankPage(items, q, fx, c.home, countries), total, nextCursor: (page + 1) * PAGE < total ? String(page + 1) : undefined, checkedAt: now };
 }
 
-export async function directGames(platform: 'switch' | 'switch2' | 'steam' | 'all-switch', term: string, ctx: DirectContext, cursor?: string): Promise<ApiList> {
+function onlyCountry(ctx: DirectContext, country: string): DirectContext {
+  return { ...ctx, home: country, switchRegions: [country] };
+}
+
+export async function directGames(platform: 'switch' | 'switch2' | 'steam' | 'all-switch', term: string, ctx: DirectContext, cursor?: string, country?: string): Promise<ApiList> {
   const now = Date.now();
   if (platform === 'steam') {
     const store = steamStoreCountry(ctx.home);
@@ -216,9 +222,11 @@ export async function directGames(platform: 'switch' | 'switch2' | 'steam' | 'al
   }
   const page = Math.max(0, Math.floor(Number(cursor ?? 0)) || 0);
   const { games, total } = await searchEu({ platform: platform === 'all-switch' ? 'all' : platform, query: term, page, pageSize: PAGE });
-  const prices = await directPrices(games, ctx);
+  const prices = await directPrices(games, country ? onlyCountry(ctx, country) : ctx);
+  const items = games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }));
   return {
-    items: games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] })),
+    // With a country picked, only games that eShop sells
+    items: country ? items.filter((i) => i.prices.length) : items,
     total,
     nextCursor: (page + 1) * PAGE < total ? String(page + 1) : undefined,
     checkedAt: now,

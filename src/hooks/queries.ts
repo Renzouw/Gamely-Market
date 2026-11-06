@@ -57,6 +57,8 @@ export interface DealFilters {
   minDiscount?: number;
   maxPrice?: number;
   abroad?: number;
+  /** Just this one eShop */
+  country?: string;
 }
 
 const keepSamePlatform =
@@ -86,19 +88,20 @@ export function useDeals(platform: Platform, sort: DealSort, filters: DealFilter
 
 export type DirectoryPlatform = Platform | 'all-switch';
 
-export function useDirectory(platform: DirectoryPlatform, query: string) {
+export function useDirectory(platform: DirectoryPlatform, query: string, country?: string) {
   const p = usePrefs();
   const mode = useDataMode();
   const regions = platform === 'steam' ? p.steamRegions : p.switchRegions;
   const term = query.trim();
+  const only = platform === 'steam' ? undefined : country;
   const q = useInfiniteQuery({
-    queryKey: ['games', platform, term, p.home, regions, mode],
+    queryKey: ['games', platform, term, p.home, regions, only, mode],
     initialPageParam: undefined as string | undefined,
     // Keep results visible while typing, within the same platform
     placeholderData: keepSamePlatform(platform),
     staleTime: 5 * 60_000,
     enabled: !!mode && (platform !== 'steam' || term.length >= 2),
-    queryFn: ({ pageParam, signal }) => getGames(platform, term, regions, pageParam, mode, signal),
+    queryFn: ({ pageParam, signal }) => getGames(platform, term, regions, pageParam, mode, signal, only),
     getNextPageParam: (last) => last.nextCursor,
   });
   const items = useMemo(() => flatten(q.data), [q.data]);

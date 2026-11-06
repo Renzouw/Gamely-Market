@@ -34,6 +34,11 @@ export function effectiveRegions(platform: Platform, home: string, regions: stri
   return { regions: regions.includes(home) ? regions : [...regions, home], home };
 }
 
+/** The regions a deals list covers. With one country picked, only that eShop counts. */
+function dealRegions(q: DealQuery): { regions: string[]; home: string } {
+  return q.country && q.platform !== 'steam' ? { regions: [q.country], home: q.country } : effectiveRegions(q.platform, q.home, q.regions);
+}
+
 /** Cursors are plain offsets. Anything negative, fractional or garbled starts from the top. */
 export function parseCursor(c?: string): number {
   const n = Math.floor(Number(c));
@@ -41,7 +46,7 @@ export function parseCursor(c?: string): number {
 }
 
 function rankDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now: number): Ranked[] {
-  const { regions, home } = effectiveRegions(q.platform, q.home, q.regions);
+  const { regions, home } = dealRegions(q);
   // For Steam, a "deal" means discounted in the store you can buy from.
   const saleRegions = new Set(q.platform === 'steam' ? [home] : regions);
   const wanted = new Set(regions);
@@ -93,7 +98,7 @@ const rankedCache = new Map<string, { version: number; minute: number; rows: Ent
 const RANKED_CACHE_MAX = 200;
 
 export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = Date.now()): ApiList {
-  const key = JSON.stringify([q.platform, q.sort, q.home, q.currency, [...q.regions].sort(), q.minDiscount, q.maxPrice, q.abroad, fx?.updatedAt]);
+  const key = JSON.stringify([q.platform, q.sort, q.home, q.currency, [...q.regions].sort(), q.minDiscount, q.maxPrice, q.abroad, q.country, fx?.updatedAt]);
   const minute = Math.floor(now / 60_000);
   let hit = rankedCache.get(key);
   if (!hit || hit.version !== version || hit.minute !== minute) {
@@ -103,7 +108,7 @@ export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = D
     rankedCache.set(key, hit);
     if (rankedCache.size > RANKED_CACHE_MAX) rankedCache.delete(rankedCache.keys().next().value!);
   }
-  const { regions } = effectiveRegions(q.platform, q.home, q.regions);
+  const { regions } = dealRegions(q);
   const wanted = new Set(regions);
   const limit = Math.min(q.limit ?? 30, 100);
   const offset = parseCursor(q.cursor);
@@ -123,13 +128,20 @@ export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = D
 
 export type DirectoryPlatform = Platform | 'all-switch';
 
-export function searchGames(db: Db, p: { platform: DirectoryPlatform; key: string; regions: string[]; cursor?: string; limit?: number }, now = Date.now()): ApiList {
+/** With `country`, only games that eShop sells, priced there alone. */
+export function searchGames(db: Db, p: { platform: DirectoryPlatform; key: string; regions: string[]; country?: string; cursor?: string; limit?: number }, now = Date.now()): ApiList {
   const platforms = p.platform === 'all-switch' ? ['switch', 'switch2'] : [p.platform];
   const limit = Math.min(p.limit ?? 30, 100);
   const offset = parseCursor(p.cursor);
-  const where = `platform IN (${platforms.map(() => '?').join(', ')})` + (p.key ? ' AND title_key LIKE ?' : '');
+  const country = p.platform !== 'steam' ? p.country : undefined;
+  const where =
+    `platform IN (${platforms.map(() => '?').join(', ')})` +
+    (p.key ? ' AND title_key LIKE ?' : '') +
+    (country ? ' AND EXISTS (SELECT 1 FROM prices WHERE prices.game_id = games.id AND prices.country = ?)' : '');
   const params: string[] = [...platforms];
   if (p.key) params.push(`%${p.key}%`);
+  if (country) params.push(country);
+  if (country) p = { ...p, regions: [country] };
   const total = all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM games WHERE ${where}`, ...params)[0]?.n ?? 0;
   const order = p.key
     ? 'CASE WHEN title_key = ? THEN 0 WHEN title_key LIKE ? THEN 1 ELSE 2 END, COALESCE(rank, 1e9), title'

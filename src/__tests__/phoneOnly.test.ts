@@ -117,6 +117,28 @@ describe('phone-only data', () => {
     expect(page.items[0].prices[0].checkedAt).toBeGreaterThan(0);
   });
 
+  it('narrows a deals page to one eShop when a country is picked', async () => {
+    const asked: string[] = [];
+    globalThis.fetch = jest.fn(async (url: string) => {
+      const u = new URL(url);
+      if (u.host === 'searching.nintendo-europe.com') {
+        return new Response(JSON.stringify({ response: { numFound: 2, docs: [
+          { title: 'German Sale', nsuid_txt: ['1'], playable_on_txt: ['HAC'] },
+          { title: 'UK Sale', nsuid_txt: ['2'], playable_on_txt: ['HAC'] },
+        ] } }));
+      }
+      const country = u.searchParams.get('country')!;
+      asked.push(country);
+      const ids = u.searchParams.get('ids')!.split(',');
+      const onSale = (id: string) => (id === '1' ? country === 'DE' : country === 'GB');
+      return new Response(JSON.stringify({ prices: ids.map((id) => ({ title_id: Number(id), sales_status: 'onsale', regular_price: { currency: 'EUR', raw_value: '40' }, discount_price: onSale(id) ? { currency: 'EUR', raw_value: '20' } : undefined })) }));
+    }) as unknown as typeof fetch;
+    const page = await directDeals({ platform: 'switch', sort: 'popular', home: 'GB', currency: 'USD', regions: ['GB', 'DE'], country: 'DE' }, ctx, fx);
+    expect(asked).toEqual(['DE']);
+    expect(page.items.map((i) => i.game.title)).toEqual(['German Sale']);
+    expect(page.items[0].prices.map((p) => p.country)).toEqual(['DE']);
+  });
+
   it('keeps price history compact and finds the lowest price', () => {
     const rec = useLocalHistory.getState().record;
     rec('k', [price('GB', 'GBP', 40)], 1);

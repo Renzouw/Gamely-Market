@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import type { ApiListItem } from '@shared/api';
 import { errorText } from '../../api/client';
+import { CountryChip, useCountry } from '../../components/CountryFilter';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { EmptyState, PlatformTabs, RowSkeleton } from '../../components/ui';
@@ -31,8 +32,10 @@ export default function DirectoryScreen() {
   const [platform, setPlatform] = useState<DirectoryPlatform>('all-switch');
   const [text, setText] = useState('');
   const query = useDebounced(text);
-  const q = useDirectory(platform, query);
   const isSteam = platform === 'steam';
+  const [countryCode, setCountry] = useState<string>();
+  const country = useCountry(isSteam ? undefined : countryCode);
+  const q = useDirectory(platform, query, country?.code);
 
   const renderItem = useCallback(
     ({ item }: { item: ApiListItem }) => <GameRow game={item.game} prices={item.prices} ticker={!isSteam} showPlatform={platform === 'all-switch'} />,
@@ -41,7 +44,15 @@ export default function DirectoryScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScreenHeader title="Directory" subtitle={isSteam ? 'Search the Steam store' : q.total ? `${q.total.toLocaleString()} games, prices in every region you buy from` : 'Every Switch game, priced in every region'} />
+      <ScreenHeader title="Directory" subtitle={
+          isSteam
+            ? 'Search the Steam store'
+            : country
+              ? `${q.total !== undefined ? `${q.total.toLocaleString()} games` : 'Games'} sold in the ${country.flag} ${country.name} eShop`
+              : q.total
+                ? `${q.total.toLocaleString()} games, prices in every region you buy from`
+                : 'Every Switch game, priced in every region'
+        } />
       <View style={[styles.search, { backgroundColor: c.raised }]}>
         <Ionicons name="search" size={17} color={c.subtle} />
         <TextInput
@@ -62,6 +73,11 @@ export default function DirectoryScreen() {
         ) : null}
       </View>
       <PlatformTabs value={platform} options={TABS} onChange={setPlatform} />
+      {!isSteam ? (
+        <View style={styles.filters}>
+          <CountryChip value={country?.code} onChange={setCountry} />
+        </View>
+      ) : null}
       <FlashList
         data={q.items}
         keyExtractor={(it) => it.game.key}
@@ -76,7 +92,15 @@ export default function DirectoryScreen() {
           ) : q.isError ? (
             <EmptyState title="Couldn’t load games" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
           ) : (
-            <EmptyState title="No games found" body={`Nothing matches "${query.trim()}". Check the spelling or try fewer words.`} />
+            <EmptyState
+              title="No games found"
+              body={
+                country && !query.trim()
+                  ? `We don’t have prices from the ${country.name} eShop for these games yet.`
+                  : `Nothing matches "${query.trim()}"${country ? ` in the ${country.name} eShop` : ''}. Check the spelling or try fewer words.`
+              }
+              action={country ? { label: 'Show all regions', onPress: () => setCountry(undefined) } : undefined}
+            />
           )
         }
         onEndReachedThreshold={0.7}
@@ -90,4 +114,5 @@ export default function DirectoryScreen() {
 const styles = StyleSheet.create({
   search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginBottom: space.sm, paddingHorizontal: space.md, height: 44, borderRadius: radius.md },
   input: { flex: 1, height: '100%', fontFamily: font.regular, fontSize: 16 },
+  filters: { flexDirection: 'row', paddingHorizontal: GUTTER, paddingTop: space.xs, paddingBottom: space.sm },
 });

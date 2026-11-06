@@ -164,4 +164,26 @@ describe('pipeline', () => {
     expect((await app.request('/v1/watches', { headers: { Authorization: 'Bearer nope.nope' } })).status).toBe(401);
     expect((await app.request('/v1/deals?platform=switch2&home=XX&currency=USD')).status).toBe(400);
   });
+
+  it('narrows deals and the directory to one eShop', async () => {
+    const app = createApp(db);
+    await syncEuCatalog(db, { platform: 'switch2', onSaleOnly: false });
+    // Metroid is on sale in Germany only; Hades isn't sold in Germany at all
+    prices['70010000000001:DE'] = { regular: 59.99, sale: 39.99, ends: '2099-01-01T00:00:00Z' };
+    prices['70010000000002:DE'] = { regular: 0, status: 'not_found' };
+    await refreshSwitchPrices(db, ['sw:eu:70010000000001', 'sw:eu:70010000000002'], ['GB', 'DE']);
+    type List = { items: { game: { key: string }; prices: { country: string }[] }[] };
+    const get = async (path: string) => (await (await app.request(path)).json()) as List;
+
+    const de = await get('/v1/deals?platform=switch2&home=GB&currency=USD&regions=GB,DE&country=DE');
+    expect(de.items.map((i) => i.game.key)).toEqual(['sw:eu:70010000000001']);
+    expect(de.items[0].prices.map((p) => p.country)).toEqual(['DE']);
+    // Not on sale in the UK, even though the UK is home
+    expect((await get('/v1/deals?platform=switch2&home=GB&currency=USD&regions=GB,DE&country=GB')).items).toHaveLength(0);
+
+    const dir = await get('/v1/games?platform=all-switch&home=GB&regions=GB,DE&country=DE');
+    expect(dir.items.map((i) => i.game.key)).toEqual(['sw:eu:70010000000001']);
+    expect((await get('/v1/games?platform=all-switch&home=GB&regions=GB,DE')).items).toHaveLength(2);
+    expect((await app.request('/v1/deals?platform=switch2&home=GB&currency=USD&country=XX')).status).toBe(400);
+  });
 });

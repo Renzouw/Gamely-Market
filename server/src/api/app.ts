@@ -31,6 +31,7 @@ type Env = { Variables: { device: DeviceRow } };
 const ALL_COUNTRIES = new Set([...SWITCH_REGIONS.map((r) => r.code), ...STEAM_REGIONS.map((r) => r.code)]);
 const country = z.string().regex(/^[A-Z]{2}$/).refine((c) => ALL_COUNTRIES.has(c), 'Unknown region');
 const currency = z.string().refine((c) => HOME_CURRENCIES.includes(c), 'Unsupported currency');
+const switchCountry = z.string().refine((c) => SWITCH_REGIONS.some((r) => r.code === c), 'Unknown eShop');
 const csv = (v?: string) => (v ? v.split(',').map((s) => s.trim().toUpperCase()).filter((c) => ALL_COUNTRIES.has(c)) : []);
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -167,6 +168,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
         minDiscount: z.coerce.number().min(0).max(100).optional(),
         maxPrice: z.coerce.number().min(0).optional(),
         abroad: z.coerce.number().min(0).max(1).optional(),
+        country: switchCountry.optional(),
         cursor: z.string().optional(),
         limit: z.coerce.number().min(1).max(100).optional(),
       })
@@ -182,6 +184,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
         platform: z.enum(['switch2', 'switch', 'steam', 'all-switch']).default('all-switch'),
         q: z.string().max(100).default(''),
         home: country.default('US'),
+        country: switchCountry.optional(),
         cursor: z.string().optional(),
       })
       .safeParse(c.req.query());
@@ -201,7 +204,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
         // Fall through to whatever we already have
       }
     }
-    const list = searchGames(db, { platform, key, regions, cursor: q.data.cursor });
+    const list = searchGames(db, { platform, key, regions, country: q.data.country, cursor: q.data.cursor });
     // Quietly top up anything on this page that hasn't been checked lately
     const stale = list.items.filter((i) => !i.prices.length || i.prices.some((p) => Date.now() - p.checkedAt > config.refreshOnViewAfterMs)).map((i) => i.game.key);
     if (stale.length) void refreshNow(stale, 0);

@@ -37,20 +37,28 @@ export const getEvents = (mode?: DataMode) =>
   route<ApiSaleEvent[]>(mode, () => api<{ items: ApiSaleEvent[] }>('/v1/events').then((r) => r.items), async () => []);
 
 export function getDeals(q: DealQuery, fx: FxRates | undefined, mode?: DataMode, signal?: AbortSignal) {
-  const { platform, sort, home, currency, regions, cursor, minDiscount, maxPrice, abroad } = q;
+  const { platform, sort, home, currency, regions, cursor, minDiscount, maxPrice, abroad, country } = q;
   return route<ApiList>(
     mode,
-    () => api<ApiList>('/v1/deals', { query: { platform, sort, home, currency, regions, cursor, minDiscount, maxPrice, abroad }, signal }),
+    () => api<ApiList>('/v1/deals', { query: { platform, sort, home, currency, regions, cursor, minDiscount, maxPrice, abroad, country }, signal }),
     () => directDeals(q, directContext(), fx),
   );
 }
 
-export function getGames(platform: 'switch' | 'switch2' | 'steam' | 'all-switch', term: string, regions: string[], cursor?: string, mode?: DataMode, signal?: AbortSignal) {
+export function getGames(
+  platform: 'switch' | 'switch2' | 'steam' | 'all-switch',
+  term: string,
+  regions: string[],
+  cursor?: string,
+  mode?: DataMode,
+  signal?: AbortSignal,
+  country?: string,
+) {
   const ctx = directContext();
   return route<ApiList>(
     mode,
-    () => api<ApiList>('/v1/games', { query: { platform, q: term, home: ctx.home, regions, cursor }, signal }),
-    () => directGames(platform, term, ctx, cursor),
+    () => api<ApiList>('/v1/games', { query: { platform, q: term, home: ctx.home, regions, country, cursor }, signal }),
+    () => directGames(platform, term, ctx, cursor, country),
   );
 }
 
