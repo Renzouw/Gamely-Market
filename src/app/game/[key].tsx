@@ -12,7 +12,7 @@ import { errorText } from '../../api/client';
 import { PriceChart } from '../../components/PriceChart';
 import { PriceSpread } from '../../components/PriceSpread';
 import { Button, Cover, EmptyState, Group, haptic, PlatformLabel, Row, Sheet, Skeleton, SwitchRow } from '../../components/ui';
-import { useDataMode, useFx, useGameDetail, useIsWatched, usePrefs, usePriceSummary, useWatchActions } from '../../hooks/queries';
+import { useDataMode, useFx, useGameDetail, useIsWatched, usePriceSummary, useWatchActions } from '../../hooks/queries';
 import { ago, shortDate } from '../../lib/format';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
@@ -36,7 +36,6 @@ export default function GameScreen() {
   const s = usePriceSummary(d?.game.platform ?? 'switch', d?.prices ?? []);
   const fx = useFx().data;
   const mode = useDataMode();
-  const prefs = usePrefs();
   const watch = useIsWatched(key);
   const { save, remove } = useWatchActions();
   const alertsPrompted = useSettings((x) => x.alertsPrompted);
@@ -200,11 +199,6 @@ export default function GameScreen() {
                 <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} steam={isSteam} />
               ))}
             </View>
-            {mode === 'direct' && !isSteam && prefs.switchRegions.some((r) => switchRegion(r)?.group === 'americas') ? (
-              <Text variant="footnote" tone="subtle" style={{ marginTop: space.md }}>
-                Prices for the Americas eShops come from your Gamely server, which isn’t reachable right now.
-              </Text>
-            ) : null}
             {d.unmatched.length ? (
               <Text variant="footnote" tone="subtle" style={{ marginTop: space.md }}>
                 {mode === 'direct'

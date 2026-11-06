@@ -3,6 +3,8 @@ import { summarize } from '@shared/pricing';
 import type { RegionPrice } from '@shared/types';
 import { directDeals, directGames, directPrices, directSwitchCountries } from '../direct';
 import { localLows, useLocalHistory } from '../direct/history';
+import { decodeLinks, encodeLinks } from '@shared/links';
+import { forgetLinks, rememberLinks } from '../state/links';
 import { planLocalAlert } from '../services/localPlan';
 import type { LocalWatch } from '../state/watchlist';
 
@@ -168,5 +170,35 @@ describe('phone-only data', () => {
     const rows = useLocalHistory.getState().games.k.rows;
     expect(rows.map((r) => r.t)).toEqual([1, 3]);
     expect(localLows(rows)).toEqual([{ country: 'GB', currency: 'GBP', price: 20, at: 3 }]);
+  });
+});
+
+describe('phone-only prices outside Europe', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => (globalThis.fetch = realFetch));
+
+  it('stores the server’s matches compactly and reads them back', () => {
+    const text = encodeLinks([
+      { europe: '70010000096810', links: { americas: '70010000096809', japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811' } },
+      { europe: '70010000000127', links: { japan: '70010000000828' } },
+      { europe: '70010000099999', links: {} }, // no matches: left out
+    ]);
+    expect(text).toBe('0000096810,0000096809,0000096306,0000096812,0000096811\n0000000127,,0000000828,,');
+    expect(decodeLinks(text).get('70010000000127')).toEqual({ japan: '70010000000828' });
+  });
+
+  it('prices Japan, Hong Kong, Korea and the US from stored matches when the server is off', async () => {
+    forgetLinks();
+    await rememberLinks(encodeLinks([{ europe: '70010000096810', links: { americas: '70010000096809', japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811' } }]));
+    const asked: string[] = [];
+    globalThis.fetch = jest.fn(async (url: string) => {
+      const u = new URL(url);
+      asked.push(`${u.searchParams.get('country')}:${u.searchParams.get('ids')}`);
+      return new Response(JSON.stringify({ prices: u.searchParams.get('ids')!.split(',').map((id) => ({ title_id: Number(id), sales_status: 'onsale', regular_price: { currency: 'USD', raw_value: '50' } })) }));
+    }) as unknown as typeof fetch;
+    // A game as Europe's catalog lists it: only the European ID
+    const bananza = { key: 'sw:eu:70010000096810', platform: 'switch2' as const, nsuids: { europe: '70010000096810' } };
+    await directPrices([bananza], { ...ctx, switchRegions: ['GB', 'US', 'JP', 'HK', 'KR'] });
+    expect(asked.sort()).toEqual(['GB:70010000096810', 'HK:70010000096812', 'JP:70010000096306', 'KR:70010000096811', 'US:70010000096809']);
   });
 });

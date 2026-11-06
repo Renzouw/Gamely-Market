@@ -23,6 +23,7 @@ import { setBackgroundChecks } from '../services/backgroundCheck';
 import { runLocalCheck } from '../services/localAlerts';
 import { syncWatches } from '../services/watchSync';
 import { useWatchlist } from '../state/watchlist';
+import { syncLinks } from '../state/links';
 import { BackButton } from '../components/ui';
 import { UpdateToast } from '../components/UpdateToast';
 import { useNotificationTaps } from '../hooks/useNotificationTaps';
@@ -87,6 +88,13 @@ function AppEffects() {
     if (mode !== 'server') return;
     void syncWatches();
   }, [mode, watchVersion]);
+
+  // Keep a copy of the server's cross-region matches for phone-only mode (daily)
+  useEffect(() => {
+    if (mode !== 'server') return;
+    const t = setTimeout(() => void syncLinks(), 3000);
+    return () => clearTimeout(t);
+  }, [mode]);
 
   useEffect(() => {
     if (mode !== 'server') return;

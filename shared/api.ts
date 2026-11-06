@@ -62,6 +62,13 @@ export interface DirectoryOptions {
   country?: string;
 }
 
+/** GET /v1/links: every game's matches outside Europe, for phone-only mode. See shared/links.ts. */
+export interface ApiLinks {
+  rows: string;
+  count: number;
+  builtAt: number;
+}
+
 export interface ApiLow {
   country: string;
   currency: string;

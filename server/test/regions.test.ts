@@ -9,6 +9,7 @@ import { linkRegions, syncRegionCatalogs } from '../src/ingest/regions';
 import { codeKey, parseEshopAppId } from '../src/sources/nintendo/catalogRegions';
 import { isOverdue, markRun } from '../src/store';
 import { asiaCatalogPlan, parseAsiaResponse, parseJpResponse } from '@shared/stores/nintendoRegions';
+import { decodeLinks } from '@shared/links';
 
 /**
  * Fixtures are real responses saved on 2026-11-06, trimmed to a handful of
@@ -188,6 +189,15 @@ describe('linking Japan, Hong Kong and Korea', () => {
     const body = (await res.json()) as { prices: { country: string; regular: { amount: number; currency: string } }[]; unmatched: string[] };
     expect(body.prices.map((p) => `${p.country} ${p.regular.amount} ${p.regular.currency}`).sort()).toEqual(['HK 449 HKD', 'JP 449 JPY', 'KR 79800 KRW']);
     expect(body.unmatched).toEqual([]);
+  });
+
+  it('hands the phone every match outside Europe, for phone-only mode', async () => {
+    await syncAll();
+    const res = (await (await createApp(db, {}).request('/v1/links')).json()) as { rows: string; count: number };
+    const links = decodeLinks(res.rows);
+    expect(links.get('70010000096810')).toEqual({ japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811' });
+    expect(links.get('70010000000127')).toEqual({ japan: '70010000000828', hongkong: '70010000009372', korea: '70010000009372' });
+    expect(res.count).toBe(links.size);
   });
 
   it('keeps the old catalog when a store answers short', async () => {

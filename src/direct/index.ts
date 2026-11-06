@@ -4,11 +4,12 @@
  * reachable. Results use the server's API shapes, so screens don't care
  * which mode they're in.
  *
- * What's different from the server: Americas eShops need the server's
- * catalog, so they're left out. Japan, Hong Kong and Korea are matched by
- * the server from catalogs too big for a phone, so they're priced only for
- * games whose IDs there the phone already got from the server (watchlist,
- * recently viewed). Price history is what this phone has seen.
+ * What's different from the server: the Americas, Japan, Hong Kong and
+ * Korea are matched by the server from catalogs too big for a phone. The
+ * phone keeps a copy of those matches (state/links.ts, refreshed daily while
+ * the server is reachable) and prices those regions itself with them. Games
+ * listed only in the Americas need the server. Price history is what this
+ * phone has seen.
  */
 import type { ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiPrice, DealQuery, DirectoryOptions, DirectorySort } from '@shared/api';
 import { dailyBest } from '@shared/history';
@@ -44,6 +45,7 @@ import {
 import type { FxRates, Game, RegionPrice, ShopGroup } from '@shared/types';
 import { chunk, getJson, qs, StoreError } from './http';
 import { localLows, useLocalHistory } from './history';
+import { withKnownIds } from '../state/links';
 
 export interface DirectContext {
   home: string;
@@ -95,8 +97,11 @@ async function countryPrices(country: string, nsuids: string[]): Promise<Map<str
   return out;
 }
 
-/** Groups with their own IDs that only the server can match. */
-const SERVER_MATCHED = ['japan', 'hongkong', 'korea'] as const satisfies readonly Exclude<ShopGroup, 'steam'>[];
+/**
+ * Groups with their own IDs that only the server can match. The phone
+ * prices them itself with IDs the server already found (state/links.ts).
+ */
+const SERVER_MATCHED = ['americas', 'japan', 'hongkong', 'korea'] as const satisfies readonly Exclude<ShopGroup, 'steam'>[];
 
 /** Countries this person compares in those groups. */
 function serverMatchedRegions(ctx: DirectContext) {
@@ -128,8 +133,9 @@ const stamp = (p: RegionPrice, t: number): ApiPrice => ({ ...p, checkedAt: t });
  * Prices for a set of games in every country this person compares. A
  * country that fails is skipped; if every country fails, it's an error.
  */
-export async function directPrices(games: Pick<Game, 'key' | 'platform' | 'nsuids' | 'steamAppId'>[], ctx: DirectContext): Promise<Map<string, ApiPrice[]>> {
+export async function directPrices(list: Pick<Game, 'key' | 'platform' | 'nsuids' | 'steamAppId'>[], ctx: DirectContext): Promise<Map<string, ApiPrice[]>> {
   const now = Date.now();
+  const games = await withKnownIds(list);
   const out = new Map<string, ApiPrice[]>(games.map((g) => [g.key, []]));
   const tasks: Promise<boolean>[] = [];
 
@@ -201,7 +207,10 @@ export async function directDeals(q: DealQuery, ctx: DirectContext, fx: FxRates 
   }
   // One country picked: only that eShop counts, as on the server
   const c = q.country ? onlyCountry(ctx, q.country) : ctx;
-  const { games, total } = await searchEu({ platform: q.platform, onSale: true, sort: EU_SORT[q.sort], page, pageSize: PAGE });
+  const found = await searchEu({ platform: q.platform, onSale: true, sort: EU_SORT[q.sort], page, pageSize: PAGE });
+  const { total } = found;
+  // Carry the server's matches on each game, so its page can price those regions too
+  const games = await withKnownIds(found.games);
   const prices = await directPrices(games, c);
   const items = games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }));
   const countries = new Set(directSwitchCountries(c));
@@ -233,7 +242,7 @@ export async function directGames(
   const page = Math.max(0, Math.floor(Number(cursor ?? 0)) || 0);
   // Europe's catalog sorts and finds sales itself; price filters then apply to each page
   const c = country ? onlyCountry(ctx, country) : ctx;
-  const { games, total } = await searchEu({
+  const found = await searchEu({
     platform: platform === 'all-switch' ? 'all' : platform,
     query: term,
     onSale: opts.onSale,
@@ -241,6 +250,8 @@ export async function directGames(
     page,
     pageSize: PAGE,
   });
+  const { total } = found;
+  const games = await withKnownIds(found.games);
   const prices = await directPrices(games, c);
   const items = games
     .map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }))
@@ -281,10 +292,11 @@ async function lookupGame(key: string): Promise<Game | undefined> {
 }
 
 export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRates | undefined, known?: Game): Promise<ApiGameDetail> {
-  const game = known ?? (await lookupGame(key));
-  if (!game) throw new StoreError('This game needs your Gamely server, which isn’t reachable right now.');
+  const found = known ?? (await lookupGame(key));
+  if (!found) throw new StoreError('This game needs your Gamely server, which isn’t reachable right now.');
+  const [game] = await withKnownIds([found]);
 
-  // Without the server we can't look a game up in Japan, Hong Kong or Korea
+  // Regions the server hasn't matched this game in (or we have no copy of its matches yet)
   const unmatched: ApiGameDetail['unmatched'] =
     game.platform === 'steam' ? [] : [...new Set(serverMatchedRegions(ctx).map((r) => r.group))].filter((grp) => !game.nsuids?.[grp]);
 

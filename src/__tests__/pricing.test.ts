@@ -156,8 +156,10 @@ describe('eShop cards', () => {
     expect(enebaCountryUrl('KR')).toBeUndefined();
   });
 
-  it('has an Eneba region for every card country except Korea', () => {
-    for (const range of ESHOP_CARDS) for (const code of range.countries) expect(code === 'KR' || !!enebaCountryUrl(code)).toBe(true);
+  it('has an Eneba region for every card country Eneba sells', () => {
+    const notOnEneba = ['KR', 'NZ', 'CZ'];
+    for (const range of ESHOP_CARDS) for (const code of range.countries) expect(notOnEneba.includes(code) || !!enebaCountryUrl(code)).toBe(true);
+    expect(enebaCountryUrl('HK')).toContain('regions[]=hong_kong');
   });
 
   it('only lists countries whose card values were confirmed, with a source', () => {

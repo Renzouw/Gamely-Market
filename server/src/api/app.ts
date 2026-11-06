@@ -3,7 +3,8 @@ import { Hono, type Context, type Next } from 'hono';
 import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
-import { DEFAULT_ALERTS, type ApiActivity, type ApiGameDetail, type ApiStatus, type ApiWatch, type SourceHealth } from '@shared/api';
+import { DEFAULT_ALERTS, type ApiActivity, type ApiGameDetail, type ApiLinks, type ApiStatus, type ApiWatch, type SourceHealth } from '@shared/api';
+import { encodeLinks } from '@shared/links';
 import { titleKey } from '@shared/match';
 import { convert } from '@shared/pricing';
 import { HOME_CURRENCIES, STEAM_REGIONS, SWITCH_REGIONS } from '@shared/regions';
@@ -156,6 +157,26 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
   app.get('/v1/events', (c) => {
     c.header('Cache-Control', 'public, max-age=120');
     return c.json({ items: activeEvents(db) });
+  });
+
+  // Every European game's matches elsewhere, so phone-only mode can price those regions too
+  let links: { body: ApiLinks; at: number } | undefined;
+  app.get('/v1/links', (c) => {
+    if (!links || Date.now() - links.at > 10 * 60_000) {
+      const rows = all<{ europe: string; americas: string | null; japan: string | null; hongkong: string | null; korea: string | null }>(
+        db,
+        `SELECT e.nsuid AS europe,
+           (SELECT nsuid FROM game_ids WHERE game_id = e.game_id AND grp = 'americas') AS americas,
+           (SELECT nsuid FROM game_ids WHERE game_id = e.game_id AND grp = 'japan') AS japan,
+           (SELECT nsuid FROM game_ids WHERE game_id = e.game_id AND grp = 'hongkong') AS hongkong,
+           (SELECT nsuid FROM game_ids WHERE game_id = e.game_id AND grp = 'korea') AS korea
+         FROM game_ids e WHERE e.grp = 'europe' ORDER BY e.nsuid`,
+      );
+      const text = encodeLinks(rows.map(({ europe, ...l }) => ({ europe, links: { americas: l.americas ?? undefined, japan: l.japan ?? undefined, hongkong: l.hongkong ?? undefined, korea: l.korea ?? undefined } })));
+      links = { body: { rows: text, count: text ? text.split('\n').length : 0, builtAt: Date.now() }, at: Date.now() };
+    }
+    c.header('Cache-Control', 'public, max-age=600');
+    return c.json(links.body);
   });
 
   app.get('/v1/deals', (c) => {

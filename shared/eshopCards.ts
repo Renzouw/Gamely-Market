@@ -26,8 +26,8 @@ const CHECKED = '6 Nov 2026';
 
 /**
  * Left out on purpose: Argentina, Chile, Colombia and Peru have no eShop
- * cards (Nintendo sells them in Brazil only in Latin America). New Zealand,
- * Hong Kong, Czechia and South Africa: no card values could be confirmed.
+ * cards (Nintendo sells them in Brazil only in Latin America). South Africa
+ * has no rand card: shops there sell US-dollar cards.
  */
 export const ESHOP_CARDS: CardRange[] = [
   { countries: ['US'], currency: 'USD', amounts: [10, 20, 35, 50, 100], digitalOnly: [5, 70], source: 'https://www.bestbuy.com/site/product/5784015.p', checked: CHECKED },
@@ -40,8 +40,11 @@ export const ESHOP_CARDS: CardRange[] = [
   { countries: ['NO'], currency: 'NOK', amounts: [150, 250, 500, 750, 1000], source: 'https://startselect.com/no-en/nintendo-eshop-gift-card-150-nok/47492', checked: CHECKED },
   { countries: ['SE'], currency: 'SEK', amounts: [150, 250, 500, 750, 1000], source: 'https://startselect.com/se-sv/nintendo-eshop-card', checked: CHECKED },
   { countries: ['DK'], currency: 'DKK', amounts: [150, 250, 500, 750, 1000], source: 'https://startselect.com/dk-en/nintendo-eshop-gift-card-150-dkk/47495', checked: CHECKED },
+  { countries: ['CZ'], currency: 'CZK', amounts: [], digitalOnly: [400, 700, 1300, 1900, 2500], source: 'https://www.smarty.cz/Karta-na-e-shop-Nintendo-400-CZK-online-kod--4p176139', checked: CHECKED },
   { countries: ['PL'], currency: 'PLN', amounts: [70, 120, 250, 370, 500], source: 'https://mediamarkt.pl/pl/product/_e-kod-kod-aktywacyjny-nintendo-eshop-card-70-pln-1454038.html', checked: CHECKED },
   { countries: ['AU'], currency: 'AUD', amounts: [15, 30, 60, 100], source: 'https://www.nintendo.com/au/nintendo-eshop/how-to-download-nintendo-switch-games-from-nintendo-eshop', checked: CHECKED },
+  { countries: ['NZ'], currency: 'NZD', amounts: [15, 30, 60], source: 'https://www.jbhifi.co.nz/collections/digital-content-gift-cards/nintendo-eshop', checked: CHECKED },
+  { countries: ['HK'], currency: 'HKD', amounts: [300], digitalOnly: [100, 500], source: 'https://www.nintendo.com/hk/software/prepaidcard/', checked: CHECKED },
   { countries: ['JP'], currency: 'JPY', amounts: [1500, 3000, 5000, 9000], source: 'https://www.nintendo.com/jp/software/howtodl/prepaidcard/', checked: CHECKED },
   { countries: ['KR'], currency: 'KRW', amounts: [10000, 20000, 50000], source: 'https://support.nintendo.com/kr/switch/eshop/howtodl/prepaidcard/index.html', checked: CHECKED },
 ];
@@ -66,7 +69,7 @@ export const CARD_COUNTRIES: Region[] = SWITCH_REGIONS.filter((r) => cardsFor(r.
  *
  * Eneba's region filter names, as its store page uses them (checked
  * 6 Nov 2026). Euro cards are sold as "Europe" or for one country. Eneba
- * doesn't sell Korean cards.
+ * has no South Korea, New Zealand or Czechia region.
  */
 const ENEBA_REGIONS: Record<string, string[]> = {
   US: ['united_states', 'north_america'],
@@ -88,6 +91,7 @@ const ENEBA_REGIONS: Record<string, string[]> = {
   PL: ['poland'],
   AU: ['australia'],
   JP: ['japan'],
+  HK: ['hong_kong'],
 };
 
 export const ENEBA_STORE = 'https://www.eneba.com/store/gift-cards';
