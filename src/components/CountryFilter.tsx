@@ -51,7 +51,13 @@ export function CountryChip({ value, onChange }: { value: string | undefined; on
   const pick = (code: string | undefined) => (onChange(code), setOpen(false));
   return (
     <>
-      <Chip label={selected ? `${selected.flag} ${selected.name}` : 'All regions'} active={!!selected} trailing="chevron-down" onPress={() => setOpen(true)} />
+      <Chip
+        label={selected ? `${selected.flag} ${selected.name}` : 'All regions'}
+        active={!!selected}
+        trailing="chevron-down"
+        onPress={() => setOpen(true)}
+        accessibilityLabel={`Show one eShop: ${selected ? selected.name : 'all regions'}`}
+      />
       <Sheet visible={open} onClose={() => setOpen(false)} title="Show one eShop">
         <ScrollView style={{ maxHeight: 440 }}>
           <SheetOption label="All your regions" detail="The best price across every eShop you compare" selected={!selected} onPress={() => pick(undefined)} />

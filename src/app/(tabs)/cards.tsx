@@ -73,10 +73,7 @@ export default function CardsScreen() {
             <View key={v.amount} style={[styles.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text variant="priceM">{formatWhole(v.amount, range.currency)}</Text>
-                <Text variant="footnote" tone="subtle">
-                  {mine !== undefined && range.currency !== prefs.currency ? `About ${formatMoney(mine, prefs.currency)}` : range.currency === prefs.currency ? 'Your currency' : 'No exchange rate yet'}
-                  {v.digitalOnly ? ' · digital code only' : ''}
-                </Text>
+                {detail(v.digitalOnly, range.currency === prefs.currency ? undefined : mine !== undefined ? `About ${formatMoney(mine, prefs.currency)}` : 'No exchange rate yet')}
               </View>
               {onEneba ? (
                 <Button
@@ -112,6 +109,16 @@ export default function CardsScreen() {
       </Sheet>
     </ScrollView>
   );
+}
+
+/** "About ₱2,850 · digital code only", or nothing when the card is already in your currency and comes as a card too */
+function detail(digitalOnly: boolean | undefined, converted: string | undefined) {
+  const text = [converted, digitalOnly ? 'Digital code only' : undefined].filter(Boolean).join(' · ');
+  return text ? (
+    <Text variant="footnote" tone="subtle">
+      {text}
+    </Text>
+  ) : null;
 }
 
 const styles = StyleSheet.create({

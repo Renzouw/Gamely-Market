@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { ConvertedRegionPrice } from '@shared/types';
 import { formatMoney } from '@shared/pricing';
+import { regionLabel } from '@shared/regions';
 import { space, useTheme } from '../theme';
 import { Text } from '../theme/Text';
 
@@ -23,7 +24,7 @@ export function PriceSpread({ ranked, homeCountry, currency }: { ranked: Convert
   return (
     <View
       accessible
-      accessibilityLabel={`Prices range from ${formatMoney(min, currency)} in ${pts[0].country} to ${formatMoney(max, currency)} in ${pts[pts.length - 1].country}`}
+      accessibilityLabel={`Prices range from ${formatMoney(min, currency)} in ${regionLabel(pts[0].country).name} to ${formatMoney(max, currency)} in ${regionLabel(pts[pts.length - 1].country).name}`}
       style={styles.wrap}
     >
       <View style={styles.track} onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width)}>

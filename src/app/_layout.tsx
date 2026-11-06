@@ -25,6 +25,7 @@ import { syncWatches } from '../services/watchSync';
 import { useWatchlist } from '../state/watchlist';
 import { loadLinks, syncLinks } from '../state/links';
 import { BackButton } from '../components/ui';
+import { Toast } from '../components/Toast';
 import { UpdateToast } from '../components/UpdateToast';
 import { useNotificationTaps } from '../hooks/useNotificationTaps';
 import { reconcilePermission, syncDevice } from '../services/push';
@@ -223,6 +224,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings/sources" options={{ title: 'Server and data' }} />
         </Stack>
         <UpdateToast />
+        <Toast />
       </ThemeProvider>
     </PersistQueryClientProvider>
   );

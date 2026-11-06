@@ -11,7 +11,7 @@ import { getDeals, getEvents, getFx, getGame, getGames, getServerActivity, getWa
 import { useLastMode, useServer, type DataMode } from '../api/server';
 import { useLocalActivity } from '../state/activity';
 import { useSettings } from '../state/settings';
-import { useWatchlist } from '../state/watchlist';
+import { useWatchlist, type LocalWatch } from '../state/watchlist';
 import { syncWatches } from '../services/watchSync';
 
 export function usePrefs() {
@@ -223,6 +223,12 @@ export function useWatchActions() {
       remove: {
         mutate: (key: string) => {
           useWatchlist.getState().remove(key);
+          void syncWatches();
+        },
+      },
+      restore: {
+        mutate: (w: LocalWatch) => {
+          useWatchlist.getState().restore(w);
           void syncWatches();
         },
       },

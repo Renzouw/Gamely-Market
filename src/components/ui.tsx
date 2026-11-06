@@ -78,11 +78,25 @@ export function Button({
 }
 
 /** Text-only filter toggle. Selected state is an inverted fill, never a colour. */
-export function Chip({ label, active, onPress, trailing }: { label: string; active?: boolean; onPress: () => void; trailing?: keyof typeof Ionicons.glyphMap }) {
+export function Chip({
+  label,
+  active,
+  onPress,
+  trailing,
+  accessibilityLabel,
+}: {
+  label: string;
+  active?: boolean;
+  onPress: () => void;
+  trailing?: keyof typeof Ionicons.glyphMap;
+  /** What the chip is for, when its text alone doesn't say ("Sort deals: Popular") */
+  accessibilityLabel?: string;
+}) {
   const { c } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ selected: !!active }}
       hitSlop={{ top: 6, bottom: 6 }}
       onPress={() => (haptic(), onPress())}
@@ -122,14 +136,17 @@ export function PlatformTabs<T extends string>({ value, options, onChange }: { v
   );
 }
 
-export function PlatformLabel({ platform }: { platform: Platform }) {
+/** A platform's dot and name. `dotOnly` for tight rows, where the name would crowd out what matters. */
+export function PlatformLabel({ platform, dotOnly }: { platform: Platform; dotOnly?: boolean }) {
   const m = platformMeta[platform];
   return (
-    <View style={styles.platform}>
+    <View style={styles.platform} accessibilityLabel={dotOnly ? m.label : undefined}>
       <View style={[styles.dot, { backgroundColor: m.dot }]} />
-      <Text variant="caption" tone="muted">
-        {m.label}
-      </Text>
+      {dotOnly ? null : (
+        <Text variant="caption" tone="muted">
+          {m.label}
+        </Text>
+      )}
     </View>
   );
 }
@@ -345,8 +362,8 @@ export function SheetOption({ label, detail, selected, onPress }: { label: strin
   const { c } = useTheme();
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: !!selected }}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: !!selected }}
       onPress={() => (haptic(), onPress())}
       style={({ pressed }) => [styles.sheetOption, { backgroundColor: pressed ? c.raised : 'transparent' }]}
     >

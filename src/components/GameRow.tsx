@@ -1,11 +1,11 @@
 import { router } from 'expo-router';
-import { memo, useCallback } from 'react';
-import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { memo, useCallback, useEffect, useRef } from 'react';
+import { ScrollView, StyleSheet, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import type { ApiGame, ApiPrice } from '@shared/api';
 import { endsSoon, formatMoney, timeLeft } from '@shared/pricing';
 import { regionLabel } from '@shared/regions';
 import { usePriceSummary } from '../hooks/queries';
-import { GUTTER, space, useTheme } from '../theme';
+import { GUTTER, platformMeta, space, useTheme } from '../theme';
 import { Text } from '../theme/Text';
 import { Cover, PlatformLabel, Tap } from './ui';
 
@@ -35,6 +35,9 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
   const saving = s.savingVsHome && s.savingVsHome >= 0.05 ? Math.round(s.savingVsHome * 100) : 0;
 
   const open = useCallback(() => router.push({ pathname: '/game/[key]', params: { key: game.key } }), [game.key]);
+  // A recycled row would keep the last game's sideways scroll: put it back to the start
+  const tickerRef = useRef<ScrollViewInstance>(null);
+  useEffect(() => tickerRef.current?.scrollTo({ x: 0, animated: false }), [game.key]);
 
   let context: { text: string; tone: 'warn' | 'signal' | 'subtle' } | undefined;
   if (left) context = { text: `Ends in ${left}`, tone: 'warn' };
@@ -46,6 +49,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
     game.title,
     best?.converted !== undefined ? `${formatMoney(best.converted, s.currency)}${region && !isSteam ? ` in ${region.name}` : ''}` : 'No price in your regions',
     best?.discountPercent ? `${best.discountPercent}% off` : undefined,
+    showPlatform ? platformMeta[game.platform].label : undefined,
     left ? `ends in ${left}` : undefined,
   ]
     .filter(Boolean)
@@ -60,7 +64,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
             {game.title}
           </Text>
           <View style={styles.meta}>
-            {showPlatform ? <PlatformLabel platform={game.platform} /> : null}
+            {showPlatform ? <PlatformLabel platform={game.platform} dotOnly /> : null}
             {context ? (
               <Text variant="footnote" tone={context.tone} numberOfLines={1} style={{ flexShrink: 1 }}>
                 {context.text}
@@ -92,8 +96,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
       </View>
 
       {ticker && s.ranked.length > 1 ? (
-        // A key per game: a recycled row would otherwise keep the last game's sideways scroll
-        <ScrollView key={game.key} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.ticker, { paddingLeft: coverW + space.md }]} accessible={false}>
+        <ScrollView ref={tickerRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.ticker, { paddingLeft: coverW + space.md }]} accessible={false}>
           {s.ranked.slice(0, 10).map((p, i) =>
             p.converted === undefined ? null : (
               <View key={p.country} style={styles.tick}>

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import type { ApiListItem, DirectoryOptions, DirectorySort } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
 import { errorText } from '../../api/client';
@@ -96,7 +96,7 @@ export default function DirectoryScreen() {
           accessibilityLabel="Search games"
         />
         {text ? (
-          <Pressable onPress={() => setText('')} hitSlop={12} accessibilityRole="button" accessibilityLabel="Clear search">
+          <Pressable onPress={() => setText('')} hitSlop={14} accessibilityRole="button" accessibilityLabel="Clear search">
             <Ionicons name="close-circle" size={17} color={c.subtle} />
           </Pressable>
         ) : null}
@@ -149,6 +149,7 @@ export default function DirectoryScreen() {
         onEndReachedThreshold={0.7}
         onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && q.fetchNextPage()}
         ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xxl }} color={c.subtle} /> : <View style={{ height: space.xxl }} />}
+        refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isFetchingNextPage} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}
       />
     </View>
   );

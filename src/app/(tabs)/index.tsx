@@ -122,7 +122,7 @@ export default function DealsScreen() {
                 A heads-up when Steam or the eShop starts a major sale, plus the best deals on popular games. Nothing overnight.
               </Text>
             </View>
-            <Pressable onPress={() => useSettings.getState().set({ alertsPrompted: true })} hitSlop={12} accessibilityRole="button" accessibilityLabel="Dismiss">
+            <Pressable onPress={() => useSettings.getState().set({ alertsPrompted: true })} hitSlop={13} accessibilityRole="button" accessibilityLabel="Dismiss">
               <Ionicons name="close" size={18} color={c.subtle} />
             </Pressable>
           </View>
@@ -137,6 +137,12 @@ export default function DealsScreen() {
         <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
         {!isSteam && canAbroad ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
       </ScrollView>
+      {q.isError && q.items.length ? (
+        // A pull to refresh that failed would otherwise just stop spinning
+        <Text variant="footnote" tone="warn" style={styles.note} onPress={() => void q.refetch()} accessibilityRole="button">
+          Couldn’t refresh{freshness ? `, showing prices checked ${freshness}` : ''}. Tap to try again.
+        </Text>
+      ) : null}
       {q.total !== undefined && q.items.length ? (
         <Text variant="caption" tone="subtle" style={styles.count}>
           {isSteam
@@ -181,6 +187,7 @@ export default function DealsScreen() {
 const styles = StyleSheet.create({
   filters: { gap: space.sm, paddingHorizontal: GUTTER, paddingTop: space.md, paddingBottom: space.xs, alignItems: 'center' },
   count: { paddingHorizontal: GUTTER, paddingTop: space.md },
+  note: { paddingHorizontal: GUTTER, paddingTop: space.md, minHeight: 44 },
   event: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginTop: space.md, paddingHorizontal: space.md, paddingVertical: space.sm + 2, borderRadius: radius.md },
   prompt: { marginHorizontal: GUTTER, marginTop: space.md, padding: space.lg, borderRadius: radius.lg },
 });

@@ -28,6 +28,8 @@ interface WatchState {
   removed: string[];
   save: (game: ApiGame, input: WatchInput) => void;
   remove: (key: string) => void;
+  /** Put back a watch exactly as it was (Undo after removing it) */
+  restore: (w: LocalWatch) => void;
   markSynced: (key: string, version: number) => void;
   clearRemoved: (key: string) => void;
   setLast: (key: string, last: LocalWatch['last'], sent?: string[]) => void;
@@ -57,6 +59,11 @@ export const useWatchlist = create<WatchState>()(
           };
           return { items: { ...s.items, [game.key]: next }, removed: s.removed.filter((k) => k !== game.key) };
         }),
+      restore: (w) =>
+        set((s) => ({
+          items: { ...s.items, [w.game.key]: { ...w, synced: false, updatedAt: Date.now() } },
+          removed: s.removed.filter((k) => k !== w.game.key),
+        })),
       remove: (key) =>
         set((s) => {
           const { [key]: gone, ...rest } = s.items;

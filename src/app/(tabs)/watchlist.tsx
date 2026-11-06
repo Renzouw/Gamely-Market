@@ -9,13 +9,17 @@ import { regionLabel, steamStoreCountry } from '@shared/regions';
 import type { FxRates } from '@shared/types';
 import { errorText } from '../../api/client';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { Cover, EmptyState, PlatformTabs, RowSkeleton, Tap } from '../../components/ui';
-import { useActivity, useFx, usePrefs, usePriceSummary, useWatches } from '../../hooks/queries';
+import { showToast } from '../../components/Toast';
+import { Cover, EmptyState, haptic, PlatformTabs, RowSkeleton, Tap } from '../../components/ui';
+import { useActivity, useFx, usePrefs, usePriceSummary, useWatchActions, useWatches } from '../../hooks/queries';
+import { useWatchlist } from '../../state/watchlist';
 import { ago } from '../../lib/format';
 import { GUTTER, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
 type Tab = 'watching' | 'alerts';
+/** Where the prices stand for rows that have none yet */
+type Fetch = 'loading' | 'error' | 'done';
 
 /** The price a watch is judged on: the cheapest region (Switch), or your own store (Steam, which charges your account's country). */
 function buyingPrice(w: ApiWatch, home: string, currency: string, fx: FxRates | undefined) {
@@ -24,15 +28,40 @@ function buyingPrice(w: ApiWatch, home: string, currency: string, fx: FxRates | 
   return steam ? (s.home ?? s.best) : s.best;
 }
 
-const WatchRow = memo(function WatchRow({ w }: { w: ApiWatch }) {
-  const s = usePriceSummary(w.game.platform, w.prices);
-  const best = w.game.platform === 'steam' ? (s.home ?? s.best) : s.best;
-  const atTarget = w.target !== undefined && best?.converted !== undefined && best.converted <= w.target + 0.005;
-  const atLow = best?.converted !== undefined && w.lowest && best.converted <= w.lowest.price + 0.01 && !!best.sale;
+/** How worth buying a watch is right now: 0 at your price, 1 lowest yet, 2 on sale, 3 the rest. */
+function standing(w: ApiWatch, best: ReturnType<typeof buyingPrice>): number {
+  if (w.target !== undefined && best?.converted !== undefined && best.converted <= w.target + 0.005) return 0;
+  if (best?.converted !== undefined && w.lowest && best.converted <= w.lowest.price + 0.01 && best.sale) return 1;
+  return best?.sale ? 2 : 3;
+}
 
-  let status: { text: string; tone: 'signal' | 'muted' | 'subtle' };
-  if (atTarget) status = { text: 'At your price', tone: 'signal' };
-  else if (atLow) status = { text: 'Lowest price yet', tone: 'signal' };
+/** Stop watching, with Undo that brings back the target price and alert switches */
+function stopWatching(key: string, title: string, actions: ReturnType<typeof useWatchActions>) {
+  const was = useWatchlist.getState().items[key];
+  if (!was) return;
+  haptic('light');
+  actions.remove.mutate(key);
+  showToast(`Stopped watching ${title}`, { label: 'Undo', onPress: () => actions.restore.mutate(was) });
+}
+
+const WatchRow = memo(function WatchRow({ w, fetch }: { w: ApiWatch; fetch: Fetch }) {
+  const s = usePriceSummary(w.game.platform, w.prices);
+  const actions = useWatchActions();
+  const best = w.game.platform === 'steam' ? (s.home ?? s.best) : s.best;
+  const rank = standing(w, best);
+  const atTarget = rank === 0;
+
+  let status: { text: string; tone: 'signal' | 'muted' | 'subtle' | 'warn' };
+  // No prices yet: say why, rather than guessing there's no sale
+  if (!w.prices.length) {
+    status =
+      fetch === 'loading'
+        ? { text: 'Checking price…', tone: 'subtle' }
+        : fetch === 'error'
+          ? { text: 'Couldn’t check the price', tone: 'warn' }
+          : { text: 'Not sold in your regions', tone: 'subtle' };
+  } else if (atTarget) status = { text: 'At your price', tone: 'signal' };
+  else if (rank === 1) status = { text: 'Lowest price yet', tone: 'signal' };
   else if (best?.sale) status = { text: `On sale in ${regionLabel(best.country).name}`, tone: 'muted' };
   else if (w.target !== undefined && best?.converted !== undefined) status = { text: `${formatMoney(best.converted - w.target, s.currency)} above your price`, tone: 'subtle' };
   else status = { text: 'Waiting for a sale', tone: 'subtle' };
@@ -40,7 +69,11 @@ const WatchRow = memo(function WatchRow({ w }: { w: ApiWatch }) {
   return (
     <Tap
       onPress={() => router.push({ pathname: '/game/[key]', params: { key: w.game.key } })}
+      onLongPress={() => stopWatching(w.game.key, w.game.title, actions)}
       accessibilityRole="button"
+      accessibilityHint="Long press to stop watching"
+      accessibilityActions={[{ name: 'longpress', label: 'Stop watching' }]}
+      onAccessibilityAction={(e) => e.nativeEvent.actionName === 'longpress' && stopWatching(w.game.key, w.game.title, actions)}
       accessibilityLabel={`${w.game.title}, ${best?.converted !== undefined ? formatMoney(best.converted, s.currency) : 'no price'}, ${status.text}`}
       scaleTo={0.985}
       style={styles.row}
@@ -129,8 +162,14 @@ export default function WatchlistScreen() {
   const prefs = usePrefs();
   const fx = useFx().data;
 
-  const sorted = useMemo(() => watches.data ?? [], [watches.data]);
-  const renderWatch = useCallback(({ item }: { item: ApiWatch }) => <WatchRow w={item} />, []);
+  // Worth buying first (at your price, lowest yet, on sale), newest first within each
+  const sorted = useMemo(() => {
+    const list = watches.data ?? [];
+    const rank = new Map(list.map((w) => [w.game.key, standing(w, buyingPrice(w, prefs.home, prefs.currency, fx))]));
+    return [...list].sort((a, b) => rank.get(a.game.key)! - rank.get(b.game.key)!);
+  }, [watches.data, prefs.home, prefs.currency, fx]);
+  const fetch: Fetch = watches.isFetching ? 'loading' : watches.isError ? 'error' : 'done';
+  const renderWatch = useCallback(({ item }: { item: ApiWatch }) => <WatchRow w={item} fetch={fetch} />, [fetch]);
   const renderAlert = useCallback(({ item }: { item: ApiActivity }) => <AlertRow a={item} />, []);
   // Counted the same way each row decides it says "on sale"
   const onSale = useMemo(() => sorted.filter((w) => buyingPrice(w, prefs.home, prefs.currency, fx)?.sale).length, [sorted, prefs.home, prefs.currency, fx]);
@@ -141,6 +180,11 @@ export default function WatchlistScreen() {
         title="Watchlist"
         subtitle={sorted.length ? `${sorted.length} ${sorted.length === 1 ? 'game' : 'games'}${onSale ? ` · ${onSale} on sale now` : ''}` : undefined}
       />
+      {tab === 'watching' && watches.isError && sorted.length ? (
+        <Text variant="footnote" tone="warn" style={styles.note} onPress={() => void watches.refetch()} accessibilityRole="button">
+          Couldn’t refresh prices. Tap to try again.
+        </Text>
+      ) : null}
       <PlatformTabs<Tab>
         value={tab}
         onChange={setTab}
@@ -158,6 +202,7 @@ export default function WatchlistScreen() {
         <FlashList
           key="watching"
           data={sorted}
+          extraData={fetch}
           keyExtractor={(w) => w.game.key}
           renderItem={renderWatch}
           ListHeaderComponent={header}
@@ -202,5 +247,6 @@ export default function WatchlistScreen() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: GUTTER, paddingVertical: space.md },
   alert: { flexDirection: 'row', gap: space.md, paddingHorizontal: GUTTER, paddingVertical: space.md },
+  note: { paddingHorizontal: GUTTER, paddingTop: space.md, minHeight: 44 },
   alertIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
 });

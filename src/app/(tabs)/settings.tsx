@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Platform as RNPlatform, ScrollView, View } from 'react-native';
 import { HOME_CURRENCIES, SWITCH_REGIONS } from '@shared/regions';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { Group, Row, Sheet, SheetOption, SwitchRow } from '../../components/ui';
+import { Group, haptic, Row, Sheet, SheetOption, SwitchRow } from '../../components/ui';
 import { useDataMode } from '../../hooks/queries';
 import { syncDevice } from '../../services/push';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
@@ -31,6 +31,7 @@ export default function SettingsScreen() {
   const qc = useQueryClient();
   const mode = useDataMode();
   const [picker, setPicker] = useState<Picker>();
+  const [refreshing, setRefreshing] = useState<'busy' | 'done'>();
   const home = SWITCH_REGIONS.find((r) => r.code === s.homeRegion);
   const regionCount = new Set([...s.switchRegions, s.homeRegion]).size;
 
@@ -82,9 +83,17 @@ export default function SettingsScreen() {
         <Row label="Gamely server" value={mode === 'server' ? 'Connected' : mode === 'direct' ? 'Phone-only mode' : '…'} onPress={() => router.push('/settings/sources')} />
         <Row
           label="Refresh everything"
+          value={refreshing === 'busy' ? 'Refreshing…' : refreshing === 'done' ? 'Up to date' : undefined}
           onPress={() => {
-            qc.invalidateQueries();
-            syncDevice().catch(() => undefined);
+            if (refreshing === 'busy') return;
+            setRefreshing('busy');
+            void Promise.all([qc.invalidateQueries(), syncDevice().catch(() => undefined)])
+              .catch(() => undefined)
+              .finally(() => {
+                haptic('success');
+                setRefreshing('done');
+                setTimeout(() => setRefreshing(undefined), 3000);
+              });
           }}
         />
       </Group>

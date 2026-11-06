@@ -15,7 +15,7 @@ export function SortChip<T extends string>({ value, options, onChange, title }: 
   const label = options.find((o) => o.value === value)?.label ?? options[0].label;
   return (
     <>
-      <Chip label={label} trailing="chevron-down" onPress={() => setOpen(true)} />
+      <Chip label={label} trailing="chevron-down" onPress={() => setOpen(true)} accessibilityLabel={`${title}: ${label}`} />
       <Sheet visible={open} onClose={() => setOpen(false)} title={title}>
         {options.map((o) => (
           <SheetOption key={o.value} label={o.label} detail={o.detail} selected={value === o.value} onPress={() => (onChange(o.value), setOpen(false))} />

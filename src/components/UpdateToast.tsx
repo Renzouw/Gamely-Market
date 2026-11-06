@@ -71,7 +71,7 @@ function UpdateToastInner() {
             Updates.reloadAsync().catch(() => setRestarting(false));
           }}
         />
-        <Pressable onPress={() => setDismissed(id)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Not now">
+        <Pressable onPress={() => setDismissed(id)} hitSlop={13} accessibilityRole="button" accessibilityLabel="Not now">
           <Ionicons name="close" size={18} color={c.subtle} />
         </Pressable>
       </View>

@@ -2,8 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams } from 'expo-router';
-import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Keyboard, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import type { AlertPrefs, ApiGame } from '@shared/api';
 import { currencyDigits, formatMoney, timeLeft } from '@shared/pricing';
 import { regionLabel, switchRegion } from '@shared/regions';
@@ -11,11 +12,13 @@ import type { ConvertedRegionPrice } from '@shared/types';
 import { errorText } from '../../api/client';
 import { PriceChart } from '../../components/PriceChart';
 import { PriceSpread } from '../../components/PriceSpread';
+import { showToast } from '../../components/Toast';
 import { Button, Cover, EmptyState, Group, haptic, PlatformLabel, Row, Sheet, Skeleton, SwitchRow } from '../../components/ui';
 import { useDataMode, useFx, useGameDetail, useIsWatched, usePriceSummary, useWatchActions } from '../../hooks/queries';
 import { ago, shortDate } from '../../lib/format';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
+import { useWatchlist } from '../../state/watchlist';
 import { font, GUTTER, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
@@ -25,6 +28,21 @@ const GROUP_NAMES = { americas: 'the Americas', europe: 'Europe', japan: 'Japan'
 function listNames(groups: (keyof typeof GROUP_NAMES)[], joiner: 'and' | 'or'): string {
   const names = groups.map((g) => GROUP_NAMES[g]);
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} ${joiner} ${names[names.length - 1]}` : (names[0] ?? '');
+}
+
+/** Regions shown before "Show all": the cheapest few, plus your own eShop wherever it ranks */
+const FIRST_REGIONS = 6;
+
+/** Android doesn't move the page for the keyboard by itself, so the page makes room for it */
+function useKeyboardHeight(): number {
+  const [h, setH] = useState(0);
+  useEffect(() => {
+    if (RNPlatform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setH(e.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setH(0));
+    return () => (show.remove(), hide.remove());
+  }, []);
+  return h;
 }
 
 export default function GameScreen() {
@@ -37,9 +55,23 @@ export default function GameScreen() {
   const fx = useFx().data;
   const mode = useDataMode();
   const watch = useIsWatched(key);
-  const { save, remove } = useWatchActions();
+  const { save, remove, restore } = useWatchActions();
   const alertsPrompted = useSettings((x) => x.alertsPrompted);
   const [primer, setPrimer] = useState(false);
+  const [allRegions, setAllRegions] = useState(false);
+  // Light status bar icons while the cover is behind them
+  const [overCover, setOverCover] = useState(true);
+  const scroll = useRef<ScrollViewInstance>(null);
+  const alertsBox = useRef({ y: 0, height: 0 });
+  const keyboard = useKeyboardHeight();
+  const { height: screenH } = useWindowDimensions();
+  const targetFocused = useRef(false);
+  // Keep the target price box above the keyboard while typing
+  useEffect(() => {
+    if (!keyboard || !targetFocused.current) return;
+    const bottom = alertsBox.current.y + alertsBox.current.height;
+    scroll.current?.scrollTo({ y: Math.max(0, bottom - (screenH - keyboard) + space.xxl), animated: true });
+  }, [keyboard, screenH]);
 
   if (!d) {
     return (
@@ -76,7 +108,10 @@ export default function GameScreen() {
   const toggleWatch = () => {
     if (watch) {
       haptic('light');
+      // Keep everything it had (target price, alert switches) for Undo
+      const was = useWatchlist.getState().items[g.key];
       remove.mutate(g.key);
+      if (was) showToast(`Stopped watching ${g.title}`, { label: 'Undo', onPress: () => restore.mutate(was) });
       return;
     }
     haptic('success');
@@ -91,11 +126,20 @@ export default function GameScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
+      <StatusBar style={overCover ? 'light' : 'auto'} />
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 56 }}
+        ref={scroll}
+        contentContainerStyle={{ paddingBottom: 56 + keyboard }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}>
+        automaticallyAdjustKeyboardInsets
+        scrollEventThrottle={64}
+        onScroll={(e) => {
+          const over = e.nativeEvent.contentOffset.y < (width * 9) / 16 - 80;
+          if (over !== overCover) setOverCover(over);
+        }}
+        refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}
+      >
         <View>
           <Cover uri={g.image} title={g.title} platform={g.platform} width={width} height={(width * 9) / 16} rounded={0} />
           <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']} style={styles.topShade} pointerEvents="none" />
@@ -152,6 +196,11 @@ export default function GameScreen() {
                       Sale ends in {left}
                     </Fact>
                   ) : null}
+                  {d.stale ? (
+                    <Fact tone="warn" icon="alert-circle-outline">
+                      Not confirmed in over a day. Check the store before buying.
+                    </Fact>
+                  ) : null}
                   {atLowest && headline.sale ? (
                     <Fact tone="signal" icon="ribbon-outline">
                       Lowest price we’ve recorded
@@ -185,7 +234,18 @@ export default function GameScreen() {
           </View>
         </View>
 
-        {watch ? <AlertSettings game={g as ApiGame} target={watch.target} alerts={watch.alerts} currency={s.currency} suggested={headline?.converted} /> : null}
+        {watch ? (
+          <View onLayout={(e) => (alertsBox.current = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })}>
+            <AlertSettings
+              game={g as ApiGame}
+              target={watch.target}
+              alerts={watch.alerts}
+              currency={s.currency}
+              suggested={headline?.converted}
+              onTargetFocus={(focused) => (targetFocused.current = focused)}
+            />
+          </View>
+        ) : null}
 
         {s.ranked.length ? (
           <View style={[styles.pad, { marginTop: space.xxxl }]}>
@@ -195,10 +255,23 @@ export default function GameScreen() {
             </Text>
             <PriceSpread ranked={s.ranked} homeCountry={s.home?.country} currency={s.currency} />
             <View style={{ marginTop: space.lg }}>
-              {s.ranked.map((p, i) => (
-                <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} steam={isSteam} />
-              ))}
+              {s.ranked.map((p, i) =>
+                // Folded: the cheapest few and your own eShop
+                allRegions || s.ranked.length <= FIRST_REGIONS + 2 || i < FIRST_REGIONS || p.country === s.home?.country ? (
+                  <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} steam={isSteam} />
+                ) : null,
+              )}
             </View>
+            {!allRegions && s.ranked.length > FIRST_REGIONS + 2 ? (
+              <Pressable
+                onPress={() => (haptic(), setAllRegions(true))}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.more, { borderTopColor: c.line, opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Text variant="headline">Show all {s.ranked.length} regions</Text>
+                <Ionicons name="chevron-down" size={16} color={c.muted} />
+              </Pressable>
+            ) : null}
             {d.unmatched.length ? (
               <Text variant="footnote" tone="subtle" style={{ marginTop: space.md }}>
                 {mode === 'direct'
@@ -224,11 +297,6 @@ export default function GameScreen() {
           {fx ? `Converted at European Central Bank rates from ${shortDate(fx.asOf)}${headline && fx.sources[headline.current.currency] === 'market' ? ` (${headline.current.currency} uses a market rate)` : ''}. ` : ''}
           Your bank’s rate and fees may differ slightly.
         </Text>
-        {d.stale ? (
-          <Text variant="footnote" tone="warn" style={[styles.pad, { marginTop: space.sm }]}>
-            Some of these prices haven’t been confirmed in over a day. Check the store before buying.
-          </Text>
-        ) : null}
         {q.isFetching && placeholder ? <ActivityIndicator style={{ marginTop: space.xl }} color={c.subtle} /> : null}
       </ScrollView>
 
@@ -295,7 +363,21 @@ function RegionRow({ p, best, home, currency, first, steam }: { p: ConvertedRegi
   );
 }
 
-function AlertSettings({ game, target, alerts, currency, suggested }: { game: ApiGame; target?: number; alerts: AlertPrefs; currency: string; suggested?: number }) {
+function AlertSettings({
+  game,
+  target,
+  alerts,
+  currency,
+  suggested,
+  onTargetFocus,
+}: {
+  game: ApiGame;
+  target?: number;
+  alerts: AlertPrefs;
+  currency: string;
+  suggested?: number;
+  onTargetFocus: (focused: boolean) => void;
+}) {
   const { c } = useTheme();
   const { save } = useWatchActions();
   const alertsEnabled = useSettings((s) => s.alertsEnabled);
@@ -309,7 +391,32 @@ function AlertSettings({ game, target, alerts, currency, suggested }: { game: Ap
 
   const set = (patch: Partial<AlertPrefs>) => save.mutate({ game, input: { alerts: patch } });
   const commitTarget = (v?: number) => save.mutate({ game, input: { target: v === undefined ? null : Math.round(v * 100) / 100 } });
-  const footer = alertsEnabled ? undefined : RNPlatform.OS === 'web' ? 'Alerts arrive in the iOS and Android apps.' : 'Notifications are off. Turn them on in Settings to get these alerts.';
+
+  // The typed price is saved shortly after typing stops, and when leaving the page. Android's
+  // back button closes the keyboard without "finishing" the edit, so neither can rely on that.
+  const latest = useRef({ text, target });
+  // A target saved (or removed) elsewhere resets what's typed, as the box itself does above
+  useEffect(() => {
+    latest.current = { text: target !== undefined ? String(target) : '', target };
+  }, [target]);
+  const saveTyped = (feedback: boolean) => {
+    const { text: t, target: saved } = latest.current;
+    if (!useWatchlist.getState().items[game.key]) return; // stopped watching: don't bring it back
+    const v = parseFloat(t.replace(',', '.'));
+    const next = Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
+    if (next === saved || (next === undefined && t.trim() !== '')) return; // nothing new, or not a number yet
+    commitTarget(next);
+    if (feedback && next !== undefined) haptic('success');
+  };
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      saveTyped(false);
+    },
+    [], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const footer = alertsEnabled ? undefined : RNPlatform.OS === 'web' ? 'Alerts arrive in the iOS and Android apps.' : 'Notifications are off on this phone, so these alerts can’t reach you yet.';
 
   return (
     <>
@@ -320,16 +427,22 @@ function AlertSettings({ game, target, alerts, currency, suggested }: { game: Ap
         <SwitchRow label="The price drops at all" detail="Every further drop, even small ones" value={alerts.drop} onChange={(v) => set({ drop: v })} />
         <Row
           label="It reaches my price"
+          detail={target !== undefined ? `Alert at ${formatMoney(target, currency)} or less` : undefined}
           right={
             <View style={[styles.target, { backgroundColor: c.raised }]}>
               <TextInput
                 value={text}
-                onChangeText={setText}
+                onChangeText={(t) => {
+                  setText(t);
+                  latest.current.text = t;
+                  clearTimeout(timer.current);
+                  timer.current = setTimeout(() => saveTyped(true), 1200);
+                }}
+                onFocus={() => onTargetFocus(true)}
+                onBlur={() => onTargetFocus(false)}
                 onEndEditing={() => {
-                  const v = parseFloat(text.replace(',', '.'));
-                  const next = Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
-                  if (next === target) return; // nothing changed, nothing to save
-                  commitTarget(next);
+                  clearTimeout(timer.current);
+                  saveTyped(true);
                 }}
                 maxFontSizeMultiplier={1.3}
                 placeholder={suggested ? (suggested * 0.75).toFixed(currencyDigits(currency)) : 'Price'}
@@ -346,8 +459,11 @@ function AlertSettings({ game, target, alerts, currency, suggested }: { game: Ap
           }
         />
       </Group>
+      {!alertsEnabled && RNPlatform.OS !== 'web' ? (
+        <Button label="Turn on alerts" icon="notifications-outline" variant="secondary" onPress={() => void turnOnAlerts()} style={styles.turnOn} />
+      ) : null}
       {target !== undefined ? (
-        <Pressable onPress={() => commitTarget(undefined)} style={{ paddingHorizontal: GUTTER + space.xs, paddingTop: space.md }} hitSlop={10} accessibilityRole="button">
+        <Pressable onPress={() => commitTarget(undefined)} style={styles.removeTarget} accessibilityRole="button">
           <Text variant="footnote" tone="muted">
             Remove target price
           </Text>
@@ -369,6 +485,9 @@ const styles = StyleSheet.create({
   region: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, minHeight: 56 },
   bestRule: { position: 'absolute', left: -GUTTER, top: space.md, bottom: space.md, width: 3, borderTopRightRadius: 2, borderBottomRightRadius: 2 },
   flag: { fontSize: 22, width: 28, textAlign: 'center' },
+  more: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, minHeight: 48, borderTopWidth: StyleSheet.hairlineWidth },
+  turnOn: { marginHorizontal: GUTTER, marginTop: space.md, height: 44 },
+  removeTarget: { paddingHorizontal: GUTTER + space.xs, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   target: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.md, height: 36, borderRadius: radius.sm, width: 132 },
   targetInput: { flex: 1, height: '100%', fontFamily: font.monoMedium, fontSize: 15, textAlign: 'right', minWidth: 60 },
 });
