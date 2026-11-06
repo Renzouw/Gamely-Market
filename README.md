@@ -138,6 +138,14 @@ npm run build:ios       # needs a paid Apple Developer account
 
 The first run asks you to log in to Expo and links the project. When it finishes, open the link on your phone to install. Then in the app, go to Settings › Gamely server and enter the address `npm run setup` printed. Without it, the app runs in phone-only mode.
 
+### Update the app without a new APK
+
+```bash
+npm run update:app      # sends the current app code to installed phones (Expo Update, free plan)
+```
+
+Open Gamely, wait a few seconds, close it fully and open it again: the new version is in use. This covers screens, wording and logic. A new native library, an Expo SDK upgrade or a plugin change in `app.json` can't go this way: raise `version` in `app.json`, then `npm run build:android` and install the new APK. Updates only reach APKs with the same `version`, so an update can never land on an app it doesn't fit.
+
 ### Push notifications on Android
 
 Android delivers push through Google's Firebase Cloud Messaging, so Expo needs two things from a free Firebase project. One command sets it up:

@@ -54,6 +54,12 @@
         }
       ]
     ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6ea8ed21-59df-427f-9dce-e0c8b95d300f"
+    },
     "scheme": "gamely",
     "backgroundColor": "#0E1013",
     "experiments": {

@@ -29,6 +29,7 @@
     "expo-status-bar": "~58.0.4",
     "expo-system-ui": "~58.0.7",
     "expo-task-manager": "~58.0.13",
+    "expo-updates": "~58.0.21",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
@@ -67,6 +68,7 @@
     "autoupdate:status": "node scripts/autoupdate.mjs status",
     "build:android": "node scripts/build-app.mjs android",
     "build:ios": "node scripts/build-app.mjs ios",
+    "update:app": "node scripts/update-app.mjs",
     "setup:push": "node scripts/setup-push.mjs"
   },
   "private": true,
