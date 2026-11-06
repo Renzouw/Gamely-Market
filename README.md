@@ -83,6 +83,16 @@ npm run typecheck
 
 Push alerts need a real phone and an EAS project ID in `app.json` (`expo.extra.eas.projectId`, from `npx eas-cli init`), then a development or production build (`eas build`). Expo Go is fine for everything else.
 
+### Install on your phone
+
+1. Deploy the server somewhere with HTTPS (see above). Release builds won't talk to a plain `http://` address.
+2. `npx eas-cli@latest login`, then `npx eas-cli@latest init` (this adds the project ID that push alerts need).
+3. Point the app at your server: `npx eas-cli@latest env:create --name EXPO_PUBLIC_API_URL --value https://your-server --environment preview --visibility plaintext`
+4. Android: `npx eas-cli@latest build --profile preview --platform android`, then open the link it prints on your phone and install the APK.
+5. iPhone (needs a paid Apple Developer account): `npx eas-cli@latest device:create` to register your phone, then `npx eas-cli@latest build --profile preview --platform ios` and open the link on the phone.
+
+To try it before any of that, run the server on your computer and open the app in Expo Go with `EXPO_PUBLIC_API_URL=http://<your computer's local IP>:8787 npx expo start`. Everything works except push alerts, which Expo Go doesn't support.
+
 ### Americas catalog
 
 Nintendo of America has no open catalog endpoint like Europe does. Their store search runs on Algolia, so the Americas are off unless the server is given search credentials (`NA_SEARCH_*` in `server/.env.example`). Without them, the US, Canada, Mexico, Brazil and other Americas eShops are left out, and the app says so in Settings › Data sources. Check Nintendo's terms before you use any credentials you didn't get from them directly.
