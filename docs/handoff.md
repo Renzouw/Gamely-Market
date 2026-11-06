@@ -12,20 +12,20 @@ Gamely was built in a cloud Claude Code session and moved to a local project on 
 ## What's running on their PC
 
 - **Server auto-start is on.** A launcher in the Windows Startup folder (`Gamely Server.vbs`) starts the server at login with no window. Check it with `npm run autostart:status`; logs are in `server/data/server.log`.
-- **Auto-update may be on** (`npm run autoupdate`, a Task Scheduler task called "Gamely Update"). Now that work happens in this folder, turn it off with `npm run autoupdate:off`.
+- **Auto-update is off** (turned off on 2026-11-06, since work now happens in this folder).
 - `.env` (app) and `server/.env` were written by `npm run setup` for their Wi-Fi address. Rerun it if the PC's address changes.
 
 ## Verified, and not yet
 
 | Thing | Status |
 | --- | --- |
-| App and server tests, lint, typecheck | Passing (39 app tests, 70 server tests) |
+| App and server tests, lint, typecheck | Passing (39 app tests, 70 server tests). The app smoke tests have a 60 s timeout because a cold Jest cache takes over 5 s to load every screen |
 | Server against the live stores | One live run on the PC: over 5,000 prices fetched, no errors |
 | Server auto-start on Windows | Confirmed working |
 | Auto-update (`scripts/update.mjs`) | Tested on Linux copies; the Windows Task Scheduler part hasn't run for real yet |
-| APK build (`npm run build:android`) | Not confirmed yet |
-| Android push (`npm run setup:push`) | Written and tested against stand-ins for the Firebase and Expo tools only. The likely snag: Firebase refusing to create a project until the account accepts its terms in the console |
-| Phone-only mode on a real phone | Tested in the app's smoke tests, not yet on a device |
+| APK build (`npm run build:android`) | Confirmed. R8 is turned off (`enableMinifyInReleaseBuilds: false` in app.json): SDK 58 enables it by default and it stripped WorkManager's Room database, crashing the app at launch |
+| Android push (`npm run setup:push`) | Confirmed on a real phone. Firebase project `gamely-baik6i`; `google-services.json` is committed; the FCM V1 key is on Expo. A target-price alert went from the server through Expo and Firebase to the phone |
+| Phone-only mode on a real phone | Confirmed: with the server stopped, deals and the watchlist still load |
 
 The cloud session couldn't reach the stores, Expo, or Expo's docs, so anything touching those was written from documented formats and tested with samples. Working locally, you can check against the real services.
 
