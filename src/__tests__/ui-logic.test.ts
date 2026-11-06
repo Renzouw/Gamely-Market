@@ -1,5 +1,6 @@
 import { chartGeometry } from '../components/PriceChart';
 import { ago, initials } from '../lib/format';
+import { RECHECK_AFTER_MS, shouldRecheck } from '../components/UpdateToast';
 
 describe('chart geometry', () => {
   const pts = [
@@ -29,5 +30,14 @@ describe('formatting', () => {
   it('makes initials for cover placeholders', () => {
     expect(initials('The Legend of Zelda')).toBe('LZ');
     expect(initials('Hades II')).toBe('HI');
+  });
+});
+
+describe('update toast', () => {
+  it('checks again on return only after a while', () => {
+    const now = Date.parse('2026-11-06T12:00:00Z');
+    expect(shouldRecheck(undefined, now)).toBe(true);
+    expect(shouldRecheck(new Date(now - 5 * 60_000), now)).toBe(false);
+    expect(shouldRecheck(new Date(now - RECHECK_AFTER_MS), now)).toBe(true);
   });
 });

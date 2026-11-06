@@ -24,6 +24,7 @@ import { runLocalCheck } from '../services/localAlerts';
 import { syncWatches } from '../services/watchSync';
 import { useWatchlist } from '../state/watchlist';
 import { BackButton } from '../components/ui';
+import { UpdateToast } from '../components/UpdateToast';
 import { useNotificationTaps } from '../hooks/useNotificationTaps';
 import { reconcilePermission, syncDevice } from '../services/push';
 import { useSettings } from '../state/settings';
@@ -190,6 +191,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings/regions" options={{ title: 'Regions' }} />
           <Stack.Screen name="settings/sources" options={{ title: 'Server and data' }} />
         </Stack>
+        <UpdateToast />
       </ThemeProvider>
     </PersistQueryClientProvider>
   );
