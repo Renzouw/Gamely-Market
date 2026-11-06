@@ -50,6 +50,6 @@ Gamely compares game prices across Nintendo eShop regions and Steam. Two parts:
 - Server (`server/`): store adapters in `src/sources/`, ingestion and matching in `src/ingest/`, alert planning in `src/alerts/`, push in `src/push/`, HTTP API in `src/api/`, schedule in `src/jobs.ts`.
 - `shared/` holds types, regions, price maths, the API contract, price history and the store parsers (`shared/stores/`) used by both the server and phone-only mode. Keep it free of React and Node APIs.
 
-- Local tooling (`scripts/`): `setup`, `autostart` (server at login), `update` / `autoupdate` (fast-forward pulls from GitHub; `local-config.mjs` keeps the Expo project link and `google-services.json` across updates), `build-app` (EAS).
+- Local tooling (`scripts/`): `setup`, `autostart` (server at login), `update` / `autoupdate` (fast-forward pulls from GitHub; `local-config.mjs` keeps the Expo project link and `google-services.json` across updates), `build-app` (EAS, helpers in `eas.mjs`), `setup-push` (Firebase project, `google-services.json` and the FCM V1 key upload).
 
 Before you finish: `npm test && npm run typecheck` at the root, and `npm test && npm run typecheck` in `server/`.

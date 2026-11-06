@@ -140,7 +140,15 @@ The first run asks you to log in to Expo and links the project. When it finishes
 
 ### Push notifications on Android
 
-Android delivers push through Google's Firebase Cloud Messaging, so Expo needs two things from a free Firebase project. Both are one-time.
+Android delivers push through Google's Firebase Cloud Messaging, so Expo needs two things from a free Firebase project. One command sets it up:
+
+```bash
+npm run setup:push
+```
+
+It links the Expo project, logs in to Firebase (your browser opens), creates a Firebase project and its Android app (or reuses ones you pick), and puts `google-services.json` in this folder. Then it opens the one Firebase page it can't do for you: click *Generate new private key*. It finds the downloaded key, hands it to Expo's credentials tool (you pick four menu options it lists for you), deletes the key afterwards, and offers to start the new build. Firebase is built into the app, so the APK needs rebuilding once.
+
+To do it by hand instead:
 
 1. **Create the Firebase project.** At [console.firebase.google.com](https://console.firebase.google.com), add a project (Google Analytics isn't needed). Then add an Android app to it with the package name `com.gamely.market`.
 2. **Download `google-services.json`** when Firebase offers it (or later from Project settings › Your apps) and put it in the project folder, next to `app.json`. The build picks it up on its own. This file is app configuration, not a secret.
