@@ -52,7 +52,9 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "setup": "node scripts/setup.mjs",
+    "server": "npm --prefix server run dev"
   },
   "private": true,
   "jest": {

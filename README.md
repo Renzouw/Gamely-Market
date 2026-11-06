@@ -58,6 +58,16 @@ Both can be switched off, limited to certain platforms, and the big-deal thresho
 
 ## Running it
 
+### Quick start on your computer
+
+```bash
+npm run setup     # installs everything and writes the config for your Wi-Fi
+npm run server    # terminal 1: the price server
+npm start         # terminal 2: the app; scan the QR code with Expo Go
+```
+
+Your phone needs to be on the same Wi-Fi as the computer. Run `npm run setup` again if your computer's address changes. The sections below explain each part.
+
 ### Server
 
 ```bash
