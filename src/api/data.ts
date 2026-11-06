@@ -47,7 +47,7 @@ export function getDeals(q: DealQuery, fx: FxRates | undefined, mode?: DataMode,
   return route<ApiList>(
     mode,
     () => api<ApiList>('/v1/deals', { query: { platform, sort, home, currency, regions, cursor, minDiscount, maxPrice, abroad, country }, signal }),
-    () => directDeals(q, directContext(), fx),
+    () => directDeals(q, directContext(), fx, signal),
   );
 }
 
@@ -70,7 +70,7 @@ export function getGames(
         query: { platform, q: term, home: ctx.home, currency: ctx.currency, regions, country, sort, onSale: onSale ? '1' : undefined, minDiscount, maxPrice, abroad, cursor },
         signal,
       }),
-    () => directGames(platform, term, ctx, cursor, opts, fx),
+    () => directGames(platform, term, ctx, cursor, opts, fx, signal),
   );
 }
 
@@ -79,7 +79,7 @@ export function getGame(key: string, regions: string[], fx: FxRates | undefined,
   return route<ApiGameDetail>(
     mode,
     () => api<ApiGameDetail>(`/v1/games/${encodeURIComponent(key)}`, { query: { home: ctx.home, currency: ctx.currency, regions }, signal }),
-    () => directGameDetail(key, ctx, fx, known),
+    () => directGameDetail(key, ctx, fx, known, signal),
   );
 }
 

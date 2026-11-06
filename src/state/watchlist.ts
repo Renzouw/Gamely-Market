@@ -31,12 +31,14 @@ interface WatchState {
   markSynced: (key: string, version: number) => void;
   clearRemoved: (key: string) => void;
   setLast: (key: string, last: LocalWatch['last'], sent?: string[]) => void;
+  /** Several at once: every change saves the whole watchlist to disk */
+  setLastMany: (entries: { key: string; last: LocalWatch['last']; sent?: string[] }[]) => void;
   convertTargets: (rate: number) => void;
 }
 
 export const useWatchlist = create<WatchState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       items: {},
       removed: [],
       save: (game, input) =>
@@ -63,8 +65,19 @@ export const useWatchlist = create<WatchState>()(
       markSynced: (key, version) =>
         set((s) => (s.items[key] && s.items[key].updatedAt === version ? { items: { ...s.items, [key]: { ...s.items[key], synced: true } } } : s)),
       clearRemoved: (key) => set((s) => ({ removed: s.removed.filter((k) => k !== key) })),
-      setLast: (key, last, sent) =>
-        set((s) => (s.items[key] ? { items: { ...s.items, [key]: { ...s.items[key], last, sent: (sent ?? s.items[key].sent).slice(-40) } } } : s)),
+      setLast: (key, last, sent) => get().setLastMany([{ key, last, sent }]),
+      setLastMany: (entries) =>
+        set((s) => {
+          const items = { ...s.items };
+          let changed = false;
+          for (const { key, last, sent } of entries) {
+            const w = items[key];
+            if (!w) continue;
+            items[key] = { ...w, last, sent: (sent ?? w.sent).slice(-40) };
+            changed = true;
+          }
+          return changed ? { items } : s;
+        }),
       /** Target prices follow a currency change (rate = new per old) */
       convertTargets: (rate) =>
         set((s) => ({

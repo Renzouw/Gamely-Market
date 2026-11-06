@@ -1,4 +1,4 @@
-import type { ApiList, ApiListItem, DealQuery, DirectoryOptions } from '@shared/api';
+import type { ApiList, DealQuery, DirectoryOptions } from '@shared/api';
 import { convert, summarize, type PriceSummary } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { FxRates, Platform } from '@shared/types';
@@ -30,10 +30,23 @@ function saleIndex(db: Db, platform: Platform) {
   if (hit && hit.version === version) return hit.rows;
   const games = all<GameRow>(db, 'SELECT * FROM games WHERE platform = ? AND on_sale = 1', platform);
   const prices = pricesFor(db, games.map((g) => g.id));
-  const rows = games.map((game) => ({ game, prices: prices.get(game.id) ?? [] }));
+  // Plain objects with fixed fields take well under half the memory of the database's own row objects
+  const rows = games.map((game) => ({ game, prices: (prices.get(game.id) ?? []).map(compactPrice) }));
   cache.set(platform, { version, rows });
   return rows;
 }
+
+const compactPrice = (p: PriceRow): PriceRow => ({
+  game_id: p.game_id,
+  country: p.country,
+  currency: p.currency,
+  regular: p.regular,
+  sale: p.sale,
+  discount: p.discount,
+  sale_ends_at: p.sale_ends_at,
+  checked_at: p.checked_at,
+  changed_at: 0, // not needed for listing
+});
 
 /** Regions that count for a caller on this platform. Steam: the store country they buy in. */
 export function effectiveRegions(platform: Platform, home: string, regions: string[]): { regions: string[]; home: string } {
@@ -62,7 +75,8 @@ function rankDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now: number): 
   const wanted = new Set(regions);
 
   const scored: Ranked[] = [];
-  for (const { game, prices } of saleIndex(db, q.platform)) {
+  for (const entry of saleIndex(db, q.platform)) {
+    const { game, prices } = entry;
     const mine = prices.filter((p) => wanted.has(p.country)).map((p) => rowToPrice(p, now));
     // Must be on sale somewhere this person can actually buy it
     if (!mine.some((p) => p.sale && saleRegions.has(p.country))) continue;
@@ -71,7 +85,7 @@ function rankDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now: number): 
     if (q.minDiscount && (s.best?.discountPercent ?? 0) < q.minDiscount) continue;
     if (q.maxPrice !== undefined && (s.best?.converted === undefined || s.best.converted > q.maxPrice)) continue;
     if (q.abroad && (s.savingVsHome ?? 0) < q.abroad) continue;
-    scored.push({ item: { game: rowToGame(game), prices: mine }, s, game });
+    scored.push({ entry, s, game });
   }
 
   const endOf = (x: (typeof scored)[number]) => Date.parse(x.s.best?.saleEndsAt ?? '') || Infinity;
@@ -93,7 +107,7 @@ function rankDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now: number): 
   return scored;
 }
 
-type Ranked = { item: ApiListItem; s: PriceSummary; game: GameRow };
+type Ranked = { entry: Entry; s: PriceSummary; game: GameRow };
 /** What the cache keeps: just the order. Pages are built from the shared sale index on demand. */
 type Entry = { game: GameRow; prices: PriceRow[] };
 
@@ -112,8 +126,7 @@ export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = D
   const minute = Math.floor(now / 60_000);
   let hit = rankedCache.get(key);
   if (!hit || hit.version !== version || hit.minute !== minute) {
-    const index = new Map(saleIndex(db, q.platform).map((e) => [e.game.id, e]));
-    hit = { version, minute, rows: rankDeals(db, q, fx, now).map((r) => index.get(r.game.id)!) };
+    hit = { version, minute, rows: rankDeals(db, q, fx, now).map((r) => r.entry) };
     rankedCache.delete(key);
     rankedCache.set(key, hit);
     if (rankedCache.size > RANKED_CACHE_MAX) rankedCache.delete(rankedCache.keys().next().value!);

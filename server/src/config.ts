@@ -47,9 +47,11 @@ export const config = {
   /** How often each job runs. Defaults are tuned to stay polite to the stores. */
   schedule: {
     fx: num(env.EVERY_FX_MIN, 360) * MIN,
-    hotPrices: num(env.EVERY_HOT_MIN, 10) * MIN, // watched games and sales ending soon
+    hotPrices: num(env.EVERY_HOT_MIN, 10) * MIN, // watched games and sales that just ended
     dealDiscovery: num(env.EVERY_DEALS_MIN, 20) * MIN,
-    salePrices: num(env.EVERY_SALE_MIN, 30) * MIN, // everything currently discounted
+    // Everything currently discounted, for sale prices that change mid-sale. Ended sales are
+    // already hidden when read and refreshed by the hot job, and new ones come from deal discovery.
+    salePrices: num(env.EVERY_SALE_MIN, 360) * MIN,
     catalog: num(env.EVERY_CATALOG_MIN, 720) * MIN,
     fullSweep: num(env.EVERY_SWEEP_MIN, 1440) * MIN, // every game, every region
     endingSoon: num(env.EVERY_ENDING_MIN, 60) * MIN,

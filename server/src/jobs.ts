@@ -24,18 +24,33 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
    * Re-price in chunks. Each chunk holds the price lock only briefly, so the
    * 10-minute watched-games refresh never waits long behind the daily sweep.
    */
+  // Rebuilding the deals index takes a few hundred ms and lots of memory, so a long job
+  // refreshes it at most once a minute, and once more at the end
+  let lastBump = 0;
+  const pricesChanged = (force = false) => {
+    if (!force && Date.now() - lastBump < 60_000) return false;
+    lastBump = Date.now();
+    onPricesChanged();
+    return true;
+  };
   const refresh = async (ids: string[], size = 300) => {
+    let pending = false;
     for (const part of chunk(ids, size)) {
       const { changes, queued } = await refreshAndAlert(db, part);
       if (!changes.length) continue;
-      onPricesChanged();
+      pending = !pricesChanged();
       log(`prices: ${changes.length} changes, ${queued} alerts queued`);
     }
+    if (pending) pricesChanged(true);
   };
 
-  /** Watched games and sales about to start or end: checked most often. */
+  /**
+   * Watched games, and sales whose end time has just passed (to see whether
+   * they really ended or were extended). Running sales don't need checking
+   * this often: reads already hide a sale once its end time passes.
+   */
   async function hot() {
-    const soon = new Date(Date.now() + 48 * 3600_000).toISOString();
+    const soon = new Date(Date.now() + 15 * 60_000).toISOString();
     const ids = all<{ id: string }>(
       db,
       `SELECT DISTINCT game_id AS id FROM watches

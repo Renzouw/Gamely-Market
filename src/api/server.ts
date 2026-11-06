@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { useSettings } from '../state/settings';
+import { persistStorage } from '../state/storage';
 
 /**
  * Where the Gamely server lives, and whether it's reachable right now.
@@ -23,6 +25,15 @@ interface ServerState {
 }
 
 export const useServer = create<ServerState>(() => ({ mode: undefined }));
+
+/**
+ * The mode the app ended up in last time. Lists are saved to disk under it,
+ * so screens can show them at once while the first check is still running.
+ */
+export const useLastMode = create<{ mode?: DataMode }>()(persist(() => ({}), { name: 'gamely.lastMode', storage: persistStorage }));
+useServer.subscribe((s) => {
+  if (s.mode && s.mode !== useLastMode.getState().mode) useLastMode.setState({ mode: s.mode });
+});
 
 let checking: { url: string; result: Promise<DataMode> } | undefined;
 

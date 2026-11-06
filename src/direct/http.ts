@@ -5,10 +5,16 @@
 const PER_HOST = 4;
 const queues = new Map<string, { active: number; waiting: (() => void)[] }>();
 
-async function slot<T>(host: string, fn: () => Promise<T>): Promise<T> {
+async function slot<T>(host: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   let q = queues.get(host);
   if (!q) queues.set(host, (q = { active: 0, waiting: [] }));
-  if (q.active >= PER_HOST) await new Promise<void>((r) => q!.waiting.push(r));
+  const waited = q.active >= PER_HOST;
+  if (waited) await new Promise<void>((r) => q!.waiting.push(r));
+  if (signal?.aborted) {
+    // The screen that asked moved on: hand the slot this was given straight to the next one
+    if (waited) q.waiting.shift()?.();
+    throw new StoreError('Cancelled');
+  }
   q.active++;
   try {
     return await fn();
@@ -37,11 +43,14 @@ export function qs(params: Record<string, string | number | boolean | undefined>
     .join('&');
 }
 
-export async function getJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
+/** `signal` cancels the request (or its place in the queue) when the screen that asked no longer needs it. */
+export async function getJson<T>(url: string, signal?: AbortSignal, timeoutMs = 15_000): Promise<T> {
   const host = url.split('/')[2] ?? url;
   return slot(host, async () => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const cancel = () => ctrl.abort();
+    signal?.addEventListener('abort', cancel);
     try {
       const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
       if (!res.ok) throw new StoreError(`${storeName(host)} is having trouble right now (error ${res.status}). Try again in a moment.`);
@@ -51,8 +60,9 @@ export async function getJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
       throw new StoreError(`Can’t reach ${storeName(host)}. Check your connection.`);
     } finally {
       clearTimeout(t);
+      signal?.removeEventListener('abort', cancel);
     }
-  });
+  }, signal);
 }
 
 export function chunk<T>(items: T[], size: number): T[][] {

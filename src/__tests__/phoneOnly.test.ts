@@ -1,7 +1,7 @@
 import { DEFAULT_ALERTS } from '@shared/api';
 import { summarize } from '@shared/pricing';
 import type { RegionPrice } from '@shared/types';
-import { directDeals, directGames, directPricedCountries, directPrices, directSwitchCountries } from '../direct';
+import { directDeals, directGames, directPricedCountries, directPrices, directSwitchCountries, forgetPrices } from '../direct';
 import { localLows, useLocalHistory } from '../direct/history';
 import { decodeLinks, encodeLinks } from '@shared/links';
 import { forgetLinks, rememberLinks } from '../state/links';
@@ -65,7 +65,10 @@ describe('phone-side alerts', () => {
 
 describe('phone-only data', () => {
   const realFetch = globalThis.fetch;
-  afterEach(() => (globalThis.fetch = realFetch));
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    forgetPrices();
+  });
 
   it('prices only the eShops the phone can reach on its own', () => {
     expect(directSwitchCountries(ctx)).toEqual(['GB', 'DE']);
@@ -175,7 +178,10 @@ describe('phone-only data', () => {
 
 describe('phone-only prices outside Europe', () => {
   const realFetch = globalThis.fetch;
-  afterEach(() => (globalThis.fetch = realFetch));
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    forgetPrices();
+  });
 
   it('stores the server’s matches compactly and reads them back', () => {
     const text = encodeLinks([
@@ -200,6 +206,25 @@ describe('phone-only prices outside Europe', () => {
     const bananza = { key: 'sw:eu:70010000096810', platform: 'switch2' as const, nsuids: { europe: '70010000096810' } };
     await directPrices([bananza], { ...ctx, switchRegions: ['GB', 'US', 'JP', 'HK', 'KR'] });
     expect(asked.sort()).toEqual(['GB:70010000096810', 'HK:70010000096812', 'JP:70010000096306', 'KR:70010000096811', 'US:70010000096809']);
+
+    // Asked again a moment later (opening the game from a list): answered from what the stores just said
+    asked.length = 0;
+    const again = await directPrices([bananza], { ...ctx, switchRegions: ['GB', 'US', 'JP', 'HK', 'KR'] });
+    expect(asked).toEqual([]);
+    expect(again.get(bananza.key)?.map((p) => p.country).sort()).toEqual(['GB', 'HK', 'JP', 'KR', 'US']);
+  });
+
+  it('drops requests nobody wants any more', async () => {
+    let calls = 0;
+    globalThis.fetch = jest.fn(async () => {
+      calls++;
+      return new Response(JSON.stringify({ prices: [] }));
+    }) as unknown as typeof fetch;
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const game = { key: 'sw:eu:70010000000001', platform: 'switch' as const, nsuids: { europe: '70010000000001' } };
+    await expect(directPrices([game], { ...ctx, switchRegions: ['GB', 'DE', 'FR'] }, ctrl.signal)).rejects.toThrow();
+    expect(calls).toBe(0);
   });
 });
 

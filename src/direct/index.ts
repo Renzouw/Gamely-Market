@@ -92,18 +92,71 @@ export async function directFx(): Promise<ApiFx> {
 
 /* -------------------------------- Nintendo --------------------------------- */
 
-async function searchEu(p: Parameters<typeof euSearchQuery>[0]) {
-  return parseEuResponse(await getJson<EuResponse>(`${NINTENDO_EU_SEARCH}?${qs(euSearchQuery(p))}`));
+async function searchEu(p: Parameters<typeof euSearchQuery>[0], signal?: AbortSignal) {
+  return parseEuResponse(await getJson<EuResponse>(`${NINTENDO_EU_SEARCH}?${qs(euSearchQuery(p))}`, signal));
+}
+
+/**
+ * Prices fetched in the last two minutes, per country and game (null: not
+ * sold there). Opening a game from a list, re-sorting or the watchlist
+ * check then reuse what the stores just said instead of asking again.
+ */
+const PRICE_TTL = 2 * 60_000;
+const MAX_CACHED = 5000;
+const priceCache = new Map<string, { at: number; price: RegionPrice | null }>();
+
+function cached(key: string, now: number): RegionPrice | null | undefined {
+  const hit = priceCache.get(key);
+  if (!hit) return undefined;
+  if (now - hit.at > PRICE_TTL) {
+    priceCache.delete(key);
+    return undefined;
+  }
+  return hit.price;
+}
+
+function remember(key: string, price: RegionPrice | null, now: number) {
+  priceCache.delete(key);
+  priceCache.set(key, { at: now, price });
+  if (priceCache.size > MAX_CACHED) priceCache.delete(priceCache.keys().next().value!);
+}
+
+/** For tests */
+export function forgetPrices() {
+  priceCache.clear();
+}
+
+/** Fetches what isn't cached, in batches, and answers from both. */
+async function batchedPrices<Id extends string | number>(
+  country: string,
+  ids: Id[],
+  size: number,
+  fetchBatch: (batch: Id[]) => Promise<Map<Id, RegionPrice>>,
+): Promise<Map<Id, RegionPrice>> {
+  const now = Date.now();
+  const out = new Map<Id, RegionPrice>();
+  const missing: Id[] = [];
+  for (const id of new Set(ids)) {
+    const hit = cached(`${country}:${id}`, now);
+    if (hit === undefined) missing.push(id);
+    else if (hit) out.set(id, hit);
+  }
+  for (const batch of chunk(missing, size)) {
+    const got = await fetchBatch(batch);
+    for (const id of batch) {
+      const p = got.get(id);
+      remember(`${country}:${id}`, p ?? null, now);
+      if (p) out.set(id, p);
+    }
+  }
+  return out;
 }
 
 /** One country's prices for many games. Failures surface so we never show "not sold" by mistake. */
-async function countryPrices(country: string, nsuids: string[]): Promise<Map<string, RegionPrice>> {
-  const out = new Map<string, RegionPrice>();
-  for (const ids of chunk([...new Set(nsuids)], PRICE_BATCH)) {
-    const data = await getJson<RawPriceResponse>(`${NINTENDO_PRICE}?${qs(priceQuery(country, ids))}`);
-    parsePriceResponse(country, data).prices.forEach((v, k) => out.set(k, v));
-  }
-  return out;
+function countryPrices(country: string, nsuids: string[], signal?: AbortSignal): Promise<Map<string, RegionPrice>> {
+  return batchedPrices(country, nsuids, PRICE_BATCH, async (ids) =>
+    parsePriceResponse(country, await getJson<RawPriceResponse>(`${NINTENDO_PRICE}?${qs(priceQuery(country, ids))}`, signal)).prices,
+  );
 }
 
 /**
@@ -119,13 +172,13 @@ function serverMatchedRegions(ctx: DirectContext) {
 
 /* ---------------------------------- Steam ---------------------------------- */
 
-async function steamCountryPrices(appIds: number[], country: string): Promise<Map<number, RegionPrice>> {
-  const out = new Map<number, RegionPrice>();
-  for (const ids of chunk([...new Set(appIds)], 40)) {
-    const d = await getJson<AppDetailsPriceResponse>(`${STEAM_STORE_PUBLIC}/api/appdetails?${qs({ appids: ids.join(','), cc: country, filters: 'price_overview' })}`);
-    parsePriceOverview(country, d).forEach((v, k) => out.set(k, v));
-  }
-  return out;
+function steamCountryPrices(appIds: number[], country: string, signal?: AbortSignal): Promise<Map<number, RegionPrice>> {
+  return batchedPrices(`steam-${country}`, appIds, 40, async (ids) =>
+    parsePriceOverview(
+      country,
+      await getJson<AppDetailsPriceResponse>(`${STEAM_STORE_PUBLIC}/api/appdetails?${qs({ appids: ids.join(','), cc: country, filters: 'price_overview' })}`, signal),
+    ),
+  );
 }
 
 /* --------------------------------- pricing --------------------------------- */
@@ -142,7 +195,7 @@ const stamp = (p: RegionPrice, t: number): ApiPrice => ({ ...p, checkedAt: t });
  * Prices for a set of games in every country this person compares. A
  * country that fails is skipped; if every country fails, it's an error.
  */
-export async function directPrices(list: Pick<Game, 'key' | 'platform' | 'nsuids' | 'steamAppId'>[], ctx: DirectContext): Promise<Map<string, ApiPrice[]>> {
+export async function directPrices(list: Pick<Game, 'key' | 'platform' | 'nsuids' | 'steamAppId'>[], ctx: DirectContext, signal?: AbortSignal): Promise<Map<string, ApiPrice[]>> {
   const now = Date.now();
   const games = await withKnownIds(list);
   const out = new Map<string, ApiPrice[]>(games.map((g) => [g.key, []]));
@@ -157,7 +210,7 @@ export async function directPrices(list: Pick<Game, 'key' | 'platform' | 'nsuids
   const add = (key: string | undefined, p: RegionPrice) => key && out.get(key)?.push(stamp(p, now));
   if (byNsuid.size) {
     for (const c of directSwitchCountries(ctx)) {
-      tasks.push(countryPrices(c, [...byNsuid.keys()]).then((m) => (m.forEach((p, id) => add(byNsuid.get(id), p)), true), () => false));
+      tasks.push(countryPrices(c, [...byNsuid.keys()], signal).then((m) => (m.forEach((p, id) => add(byNsuid.get(id), p)), true), () => false));
     }
   }
   // Japan, Hong Kong, Korea: only for games the server already matched there
@@ -167,18 +220,19 @@ export async function directPrices(list: Pick<Game, 'key' | 'platform' | 'nsuids
       const id = g.platform !== 'steam' ? g.nsuids?.[r.group] : undefined;
       if (id) ids.set(id, g.key);
     }
-    if (ids.size) tasks.push(countryPrices(r.code, [...ids.keys()]).then((m) => (m.forEach((p, id) => add(ids.get(id), p)), true), () => false));
+    if (ids.size) tasks.push(countryPrices(r.code, [...ids.keys()], signal).then((m) => (m.forEach((p, id) => add(ids.get(id), p)), true), () => false));
   }
 
   // Steam: one request per country covers up to 40 games
   const byApp = new Map<number, string>(games.filter((g) => g.platform === 'steam' && g.steamAppId).map((g) => [g.steamAppId!, g.key]));
   if (byApp.size) {
     for (const c of steamCountries(ctx)) {
-      tasks.push(steamCountryPrices([...byApp.keys()], c.code).then((m) => (m.forEach((p, id) => add(byApp.get(id), p)), true), () => false));
+      tasks.push(steamCountryPrices([...byApp.keys()], c.code, signal).then((m) => (m.forEach((p, id) => add(byApp.get(id), p)), true), () => false));
     }
   }
 
   const results = await Promise.all(tasks);
+  if (signal?.aborted) throw new StoreError('Cancelled');
   if (results.length && !results.some(Boolean)) throw new StoreError('The stores aren’t answering right now. Check your connection.');
   return out;
 }
@@ -202,13 +256,13 @@ function rankPage(items: ApiListItem[], q: DealQuery, fx: FxRates | undefined, h
   return scored.map((x) => x.it);
 }
 
-export async function directDeals(q: DealQuery, ctx: DirectContext, fx: FxRates | undefined): Promise<ApiList> {
+export async function directDeals(q: DealQuery, ctx: DirectContext, fx: FxRates | undefined, signal?: AbortSignal): Promise<ApiList> {
   const page = Math.max(0, Math.floor(Number(q.cursor ?? 0)) || 0);
   const now = Date.now();
   if (q.platform === 'steam') {
     const store = steamStoreCountry(ctx.home);
     const query = steamSearchQuery({ country: store.code, sort: STEAM_SORT[q.sort], page, pageSize: PAGE });
-    const data = await getJson<SearchResultsResponse>(`${STEAM_STORE_PUBLIC}/search/results/?${qs(query)}`);
+    const data = await getJson<SearchResultsResponse>(`${STEAM_STORE_PUBLIC}/search/results/?${qs(query)}`, signal);
     const games = parseSearchHtml(data.results_html ?? '', store.currency, store.code);
     const items = games.map((g) => ({ game: toApiGame(g, g.listPrice ? [g.listPrice] : []), prices: g.listPrice ? [stamp(g.listPrice, now)] : [] }));
     const total = data.total_count ?? games.length;
@@ -216,11 +270,11 @@ export async function directDeals(q: DealQuery, ctx: DirectContext, fx: FxRates 
   }
   // One country picked: only that eShop counts, as on the server
   const c = q.country ? onlyCountry(ctx, q.country) : ctx;
-  const found = await searchEu({ platform: q.platform, onSale: true, sort: EU_SORT[q.sort], page, pageSize: PAGE });
+  const found = await searchEu({ platform: q.platform, onSale: true, sort: EU_SORT[q.sort], page, pageSize: PAGE }, signal);
   const { total } = found;
   // Carry the server's matches on each game, so its page can price those regions too
   const games = await withKnownIds(found.games);
-  const prices = await directPrices(games, c);
+  const prices = await directPrices(games, c, signal);
   const items = games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }));
   // A sale counts in any country we priced (regions without stored matches simply have no prices)
   const countries = new Set(directPricedCountries(c, true));
@@ -240,12 +294,13 @@ export async function directGames(
   cursor?: string,
   opts: DirectoryOptions = {},
   fx?: FxRates,
+  signal?: AbortSignal,
 ): Promise<ApiList> {
   const { country } = opts;
   const now = Date.now();
   if (platform === 'steam') {
     const store = steamStoreCountry(ctx.home);
-    const data = await getJson<StoreSearchResponse>(`${STEAM_STORE_PUBLIC}/api/storesearch/?${qs({ term, l: 'english', cc: store.code })}`);
+    const data = await getJson<StoreSearchResponse>(`${STEAM_STORE_PUBLIC}/api/storesearch/?${qs({ term, l: 'english', cc: store.code })}`, signal);
     const games = parseStoreSearch(data, store.code);
     return { items: games.map((g) => ({ game: toApiGame(g, g.listPrice ? [g.listPrice] : []), prices: g.listPrice ? [stamp(g.listPrice, now)] : [] })), total: games.length, checkedAt: now };
   }
@@ -259,10 +314,10 @@ export async function directGames(
     sort: EU_DIRECTORY_SORT[opts.sort ?? 'popular'],
     page,
     pageSize: PAGE,
-  });
+  }, signal);
   const { total } = found;
   const games = await withKnownIds(found.games);
-  const prices = await directPrices(games, c);
+  const prices = await directPrices(games, c, signal);
   const items = games
     .map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }))
     // With a country picked, only games that eShop sells
@@ -286,23 +341,23 @@ export async function directGames(
 
 /* -------------------------------- game page -------------------------------- */
 
-async function lookupGame(key: string): Promise<Game | undefined> {
+async function lookupGame(key: string, signal?: AbortSignal): Promise<Game | undefined> {
   const [kind, src, id] = key.split(':');
   if (kind === 'sw' && src === 'eu') {
-    const { games } = parseEuResponse(await getJson<EuResponse>(`${NINTENDO_EU_SEARCH}?${qs(euByNsuidQuery(id))}`));
+    const { games } = parseEuResponse(await getJson<EuResponse>(`${NINTENDO_EU_SEARCH}?${qs(euByNsuidQuery(id))}`, signal));
     return games[0];
   }
   if (kind === 'steam') {
     const appId = Number(src);
-    const data = await getJson<AppDetailsFull>(`${STEAM_STORE_PUBLIC}/api/appdetails?${qs({ appids: appId, l: 'english' })}`);
+    const data = await getJson<AppDetailsFull>(`${STEAM_STORE_PUBLIC}/api/appdetails?${qs({ appids: appId, l: 'english' })}`, signal);
     const d = data[String(appId)]?.data;
     return d ? steamGame(appId, d.name, { image: d.header_image, publisher: d.publishers?.[0], releaseDate: d.release_date?.date }) : undefined;
   }
   return undefined; // Americas-only listings need the server
 }
 
-export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRates | undefined, known?: Game): Promise<ApiGameDetail> {
-  const found = known ?? (await lookupGame(key));
+export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRates | undefined, known?: Game, signal?: AbortSignal): Promise<ApiGameDetail> {
+  const found = known ?? (await lookupGame(key, signal));
   if (!found) throw new StoreError('This game needs your Gamely server, which isn’t reachable right now.');
   const [game] = await withKnownIds([found]);
 
@@ -310,7 +365,7 @@ export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRa
   const unmatched: ApiGameDetail['unmatched'] =
     game.platform === 'steam' ? [] : [...new Set(serverMatchedRegions(ctx).map((r) => r.group))].filter((grp) => !game.nsuids?.[grp]);
 
-  const prices = (await directPrices([game], ctx)).get(key) ?? [];
+  const prices = (await directPrices([game], ctx, signal)).get(key) ?? [];
   const history = useLocalHistory.getState();
   history.record(key, prices);
   const rec = useLocalHistory.getState().games[key];

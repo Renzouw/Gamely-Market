@@ -71,7 +71,16 @@ export function upsertGame(db: Db, g: GameInput, now = Date.now()) {
        app_id = COALESCE(excluded.app_id, games.app_id),
        store_url = COALESCE(games.store_url, excluded.store_url),
        rank = COALESCE(excluded.rank, games.rank),
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at
+     -- Catalog syncs pass the same games again and again: only write when something changes
+     WHERE games.title IS NOT excluded.title
+        OR (excluded.image IS NOT NULL AND excluded.image IS NOT games.image)
+        OR (excluded.publisher IS NOT NULL AND excluded.publisher IS NOT games.publisher)
+        OR (excluded.release_date IS NOT NULL AND excluded.release_date IS NOT games.release_date)
+        OR (excluded.product_code IS NOT NULL AND excluded.product_code IS NOT games.product_code)
+        OR (excluded.app_id IS NOT NULL AND excluded.app_id IS NOT games.app_id)
+        OR (games.store_url IS NULL AND excluded.store_url IS NOT NULL)
+        OR (excluded.rank IS NOT NULL AND excluded.rank IS NOT games.rank)`,
     g.id,
     g.platform,
     g.title,
@@ -317,7 +326,20 @@ function saleFlagsFor(db: Db, id: string, nowIso: string) {
       id,
       nowIso,
     );
-    run(db, 'UPDATE games SET on_sale = ?, max_discount = ?, sale_ends_at = ? WHERE id = ?', r?.on_sale ? 1 : 0, r?.max_discount ?? 0, r?.ends ?? null, id);
+    const onSale = r?.on_sale ? 1 : 0;
+    const max = r?.max_discount ?? 0;
+    const ends = r?.ends ?? null;
+    run(
+      db,
+      'UPDATE games SET on_sale = ?, max_discount = ?, sale_ends_at = ? WHERE id = ? AND (on_sale IS NOT ? OR max_discount IS NOT ? OR sale_ends_at IS NOT ?)',
+      onSale,
+      max,
+      ends,
+      id,
+      onSale,
+      max,
+      ends,
+    );
   }
 }
 

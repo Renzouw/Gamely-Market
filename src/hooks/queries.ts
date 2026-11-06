@@ -1,4 +1,5 @@
-import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { useIsFocused } from 'expo-router';
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { ApiActivity, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiWatch, DealSort, DirectoryOptions, WatchInput } from '@shared/api';
@@ -7,7 +8,7 @@ import { steamStoreCountry } from '@shared/regions';
 import type { Platform, RegionPrice } from '@shared/types';
 import { api } from '../api/client';
 import { getDeals, getEvents, getFx, getGame, getGames, getServerActivity, getWatchPrices } from '../api/data';
-import { useServer, type DataMode } from '../api/server';
+import { useLastMode, useServer, type DataMode } from '../api/server';
 import { useLocalActivity } from '../state/activity';
 import { useSettings } from '../state/settings';
 import { useWatchlist } from '../state/watchlist';
@@ -23,6 +24,22 @@ export function usePrefs() {
 export function useDataMode(): DataMode | undefined {
   return useServer((s) => s.mode);
 }
+
+/**
+ * For screen queries: `mode` goes in the key (the last known one until the
+ * first check finishes, so lists saved on disk show at once) and `live`
+ * decides when they may fetch. A screen that isn't showing (another tab, a
+ * page underneath) doesn't refetch until it's back on screen.
+ */
+function useScreenQuery() {
+  const live = useDataMode();
+  const last = useLastMode((s) => s.mode);
+  const focused = useIsFocused();
+  return { live, mode: live ?? last, focused };
+}
+
+/** Search results and game pages are cheap to fetch again, so don't hold them in memory for a day */
+const SHORT_GC = 10 * 60_000;
 
 export function useFx() {
   const mode = useDataMode();
@@ -69,7 +86,7 @@ const keepSamePlatform =
 
 export function useDeals(platform: Platform, sort: DealSort, filters: DealFilters) {
   const p = usePrefs();
-  const mode = useDataMode();
+  const { live, mode, focused } = useScreenQuery();
   const fx = useFx().data;
   const regions = platform === 'steam' ? p.steamRegions : p.switchRegions;
   const q = useInfiniteQuery({
@@ -78,7 +95,10 @@ export function useDeals(platform: Platform, sort: DealSort, filters: DealFilter
     // Changing sort or a filter keeps the old list on screen until the new one arrives,
     // but switching platform never shows the previous platform's games
     placeholderData: keepSamePlatform(platform),
-    enabled: !!mode,
+    enabled: !!live,
+    subscribed: focused,
+    // Coming back refetches every loaded page; from the phone that's dozens of store requests. Pull to refresh instead.
+    refetchOnWindowFocus: live !== 'direct',
     staleTime: 2 * 60_000,
     queryFn: ({ pageParam, signal }) => getDeals({ platform, sort, home: p.home, currency: p.currency, regions, cursor: pageParam, ...filters }, fx, mode, signal),
     getNextPageParam: (last) => last.nextCursor,
@@ -91,7 +111,7 @@ export type DirectoryPlatform = Platform | 'all-switch';
 
 export function useDirectory(platform: DirectoryPlatform, query: string, options: DirectoryOptions = {}) {
   const p = usePrefs();
-  const mode = useDataMode();
+  const { live, mode, focused } = useScreenQuery();
   const fx = useFx().data;
   const regions = platform === 'steam' ? p.steamRegions : p.switchRegions;
   const term = query.trim();
@@ -103,7 +123,10 @@ export function useDirectory(platform: DirectoryPlatform, query: string, options
     // Keep results visible while typing, within the same platform
     placeholderData: keepSamePlatform(platform),
     staleTime: 5 * 60_000,
-    enabled: !!mode && (platform !== 'steam' || term.length >= 2),
+    gcTime: SHORT_GC,
+    enabled: !!live && (platform !== 'steam' || term.length >= 2),
+    subscribed: focused,
+    refetchOnWindowFocus: live !== 'direct',
     queryFn: ({ pageParam, signal }) => getGames(platform, term, regions, opts, fx, pageParam, mode, signal),
     getNextPageParam: (last) => last.nextCursor,
   });
@@ -114,7 +137,7 @@ export function useDirectory(platform: DirectoryPlatform, query: string, options
 export function useGameDetail(key: string) {
   const p = usePrefs();
   const qc = useQueryClient();
-  const mode = useDataMode();
+  const { live, mode, focused } = useScreenQuery();
   const fx = useFx().data;
   const watched = useWatchlist((s) => s.items[key]?.game);
   const isSteam = key.startsWith('steam:');
@@ -132,8 +155,10 @@ export function useGameDetail(key: string) {
 
   return useQuery<ApiGameDetail>({
     queryKey: ['game', key, p.home, p.currency, regions, mode],
-    enabled: !!mode,
+    enabled: !!live,
+    subscribed: focused,
     staleTime: 60_000,
+    gcTime: SHORT_GC,
     queryFn: ({ signal }) => getGame(key, regions, fx, fromLists()?.game ?? watched, mode, signal),
     placeholderData: (): ApiGameDetail | undefined => {
       const hit = fromLists();
@@ -151,15 +176,18 @@ export function useGameDetail(key: string) {
  */
 export function useWatches() {
   const items = useWatchlist((s) => s.items);
-  const mode = useDataMode();
+  const { live, mode, focused } = useScreenQuery();
   const fx = useFx().data;
   const p = usePrefs();
   const list = useMemo(() => Object.values(items).sort((a, b) => b.createdAt - a.createdAt), [items]);
   const keys = list.map((w) => w.game.key).join(',');
   const prices = useQuery({
     queryKey: ['watches', mode, keys, p.home, p.currency, p.switchRegions, p.steamRegions],
-    enabled: !!mode && list.length > 0,
+    enabled: !!live && list.length > 0,
+    subscribed: focused,
     staleTime: 60_000,
+    // Watching one more game changes the key: keep showing the other prices meanwhile
+    placeholderData: keepPreviousData,
     queryFn: () => getWatchPrices(list.map((w) => w.game), fx, mode),
   });
   const data = useMemo<ApiWatch[]>(

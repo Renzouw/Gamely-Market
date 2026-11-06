@@ -58,6 +58,7 @@ export async function runLocalCheck(): Promise<{ checked: number; alerted: numbe
   }
 
   let alerted = 0;
+  const updates: Parameters<ReturnType<typeof useWatchlist.getState>['setLastMany']>[0] = [];
   for (const w of watches) {
     const p = prices[w.game.key]?.prices;
     if (!p?.length) continue;
@@ -74,11 +75,12 @@ export async function runLocalCheck(): Promise<{ checked: number; alerted: numbe
       }
       alerted++;
     }
-    useWatchlist.getState().setLast(
-      w.game.key,
-      { best: sum.best?.converted, country: sum.best?.country, onSale: !!sum.best?.sale, homeOnSale: !!sum.home?.sale, checkedAt: Date.now() },
+    updates.push({
+      key: w.game.key,
+      last: { best: sum.best?.converted, country: sum.best?.country, onSale: !!sum.best?.sale, homeOnSale: !!sum.home?.sale, checkedAt: Date.now() },
       sent,
-    );
+    });
   }
+  useWatchlist.getState().setLastMany(updates);
   return { checked: watches.length, alerted };
 }

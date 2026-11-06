@@ -28,8 +28,13 @@ interface HistoryState {
   recordMany: (entries: [key: string, prices: RegionPrice[]][], now?: number) => void;
 }
 
-function addRows(games: Record<string, GameHistory>, key: string, prices: RegionPrice[], now: number) {
-  const g: GameHistory = games[key] ?? { firstSeen: now, touched: now, rows: [], last: {} };
+/** "Recently seen" only needs to be roughly right; bumping it on every look would rewrite the history each time */
+const TOUCH_EVERY = 24 * 3600_000;
+
+/** Adds rows for prices that changed. False when nothing needed saving. */
+function addRows(games: Record<string, GameHistory>, key: string, prices: RegionPrice[], now: number): boolean {
+  const old = games[key];
+  const g: GameHistory = old ?? { firstSeen: now, touched: now, rows: [], last: {} };
   const rows = [...g.rows];
   const last = { ...g.last };
   for (const p of prices) {
@@ -40,7 +45,9 @@ function addRows(games: Record<string, GameHistory>, key: string, prices: Region
       last[p.country] = { currency: p.regular.currency, price: current };
     }
   }
+  if (old && rows.length === old.rows.length && now - old.touched < TOUCH_EVERY) return false;
   games[key] = { firstSeen: g.firstSeen, touched: now, rows: rows.slice(-MAX_ROWS_PER_GAME), last };
+  return true;
 }
 
 export const useLocalHistory = create<HistoryState>()(
@@ -50,9 +57,10 @@ export const useLocalHistory = create<HistoryState>()(
       record: (key, prices, now) => get().recordMany([[key, prices]], now),
       recordMany: (entries, now = Date.now()) =>
         set((s) => {
-          if (!entries.length) return s;
           const games = { ...s.games };
-          for (const [key, prices] of entries) addRows(games, key, prices, now);
+          let changed = false;
+          for (const [key, prices] of entries) changed = addRows(games, key, prices, now) || changed;
+          if (!changed) return s; // same state: nothing is written to disk
           const keys = Object.keys(games);
           if (keys.length > MAX_GAMES) {
             keys

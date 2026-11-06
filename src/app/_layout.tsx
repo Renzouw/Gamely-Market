@@ -7,8 +7,8 @@ import {
 } from '@expo-google-fonts/schibsted-grotesk';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
-import { focusManager, QueryClient, useQueryClient, type Query } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { focusManager, QueryClient, useQueryClient, type InfiniteData, type Query } from '@tanstack/react-query';
+import { PersistQueryClientProvider, type PersistedClient } from '@tanstack/react-query-persist-client';
 import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, SplashScreen, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -33,7 +33,21 @@ import { font, useTheme } from '../theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-const persister = createAsyncStoragePersister({ storage: AsyncStorage, key: 'gamely.cache', throttleTime: 2000 });
+/**
+ * Lists are saved with their first page only: that's what a fresh start
+ * shows, and every extra page would make the saved copy bigger (Android
+ * can't read back a stored value much over 2 MB) and slower to write.
+ */
+function serializeCache(client: PersistedClient): string {
+  const queries = client.clientState.queries.map((q) => {
+    const data = q.state.data as InfiniteData<unknown, unknown> | undefined;
+    if (!data || !Array.isArray(data.pages) || data.pages.length <= 1) return q;
+    return { ...q, state: { ...q.state, data: { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } } };
+  });
+  return JSON.stringify({ ...client, clientState: { ...client.clientState, queries } });
+}
+
+const persister = createAsyncStoragePersister({ storage: AsyncStorage, key: 'gamely.cache', throttleTime: 2000, serialize: serializeCache });
 
 // React Native has no window focus events; treat "app came to the foreground" as focus
 // so lists refetch when someone returns after a while.
@@ -189,7 +203,7 @@ export default function RootLayout() {
   const navTheme = { ...base, colors: { ...base.colors, background: c.bg, card: c.bg, text: c.text, border: c.line, primary: c.text } };
 
   return (
-    <PersistQueryClientProvider client={client} persistOptions={{ persister, maxAge: 24 * 3600_000, buster: 'v3', dehydrateOptions: { shouldDehydrateQuery: shouldPersist } }}>
+    <PersistQueryClientProvider client={client} persistOptions={{ persister, maxAge: 24 * 3600_000, buster: 'v4', dehydrateOptions: { shouldDehydrateQuery: shouldPersist } }}>
       <AppEffects />
       <ThemeProvider value={navTheme}>
         <StatusBar style={dark ? 'light' : 'dark'} />
