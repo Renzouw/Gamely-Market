@@ -1,7 +1,7 @@
 import * as Linking from 'expo-linking';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { CARD_COUNTRIES, cardsFor, cardValues, enebaSearchUrl } from '@shared/eshopCards';
+import { CARD_COUNTRIES, cardsFor, cardValues, enebaCardUrl, enebaCountryUrl } from '@shared/eshopCards';
 import { convert, formatMoney } from '@shared/pricing';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, Group, Sheet, SheetOption } from '../../components/ui';
@@ -36,6 +36,7 @@ export default function CardsScreen() {
     CARD_COUNTRIES.find((r) => prefs.switchRegions.includes(r.code)) ??
     CARD_COUNTRIES[0];
   const range = country ? cardsFor(country.code) : undefined;
+  const allOnEneba = country ? enebaCountryUrl(country.code) : undefined;
 
   if (!country || !range) {
     return (
@@ -52,6 +53,20 @@ export default function CardsScreen() {
       <View style={styles.filters}>
         <Chip label={`${country.flag} ${country.name}`} active trailing="chevron-down" onPress={() => setOpen(true)} />
       </View>
+      {allOnEneba ? (
+        <Button
+          label={`All ${country.name} cards on Eneba`}
+          icon="open-outline"
+          variant="secondary"
+          style={styles.all}
+          onPress={() => Linking.openURL(allOnEneba)}
+          accessibilityLabel={`See every ${country.name} eShop card on Eneba, cheapest first`}
+        />
+      ) : (
+        <Text variant="footnote" tone="subtle" style={styles.note}>
+          Eneba doesn’t sell {country.name} eShop cards.
+        </Text>
+      )}
 
       <Group
         title={`${country.name} eShop · ${range.currency}`}
@@ -62,6 +77,7 @@ export default function CardsScreen() {
       >
         {cardValues(range).map((v, i) => {
           const mine = convert(v.amount, range.currency, prefs.currency, fx);
+          const onEneba = enebaCardUrl(country.code, v.amount, range.currency);
           return (
             <View key={v.amount} style={[styles.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}>
               <View style={{ flex: 1, gap: 2 }}>
@@ -71,14 +87,16 @@ export default function CardsScreen() {
                   {v.digitalOnly ? ' · digital code only' : ''}
                 </Text>
               </View>
-              <Button
-                label="Eneba"
-                icon="open-outline"
-                variant="secondary"
-                style={styles.eneba}
-                onPress={() => Linking.openURL(enebaSearchUrl(v.amount, range.currency))}
-                accessibilityLabel={`See ${cardLabel(v.amount, range.currency)} cards on Eneba`}
-              />
+              {onEneba ? (
+                <Button
+                  label="Eneba"
+                  icon="open-outline"
+                  variant="secondary"
+                  style={styles.eneba}
+                  onPress={() => Linking.openURL(onEneba)}
+                  accessibilityLabel={`See ${cardLabel(v.amount, range.currency)} cards on Eneba`}
+                />
+              ) : null}
             </View>
           );
         })}
@@ -109,5 +127,6 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', paddingHorizontal: GUTTER, paddingTop: space.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 64 },
   eneba: { height: 38, paddingHorizontal: space.md },
+  all: { marginHorizontal: GUTTER, marginTop: space.md },
   note: { paddingHorizontal: GUTTER + space.xs, marginTop: space.md },
 });

@@ -1,7 +1,7 @@
 import { convert, discountPercent, endsSoon, formatMoney, rankByPrice, summarize, timeLeft, withConversion } from '@shared/pricing';
 import { productCore, titleKey } from '@shared/match';
 import { DEFAULT_SWITCH_REGIONS, guessHome, steamStoreCountry, withNewRegions } from '@shared/regions';
-import { cardsFor, cardValues, enebaSearchUrl, ESHOP_CARDS } from '@shared/eshopCards';
+import { cardsFor, cardValues, enebaCardUrl, enebaCountryUrl, ESHOP_CARDS } from '@shared/eshopCards';
 import type { FxRates, RegionPrice } from '@shared/types';
 
 const fx: FxRates = { base: 'USD', rates: { USD: 1, MXN: 20, GBP: 0.8, EUR: 0.9, JPY: 150 }, updatedAt: 0 };
@@ -147,8 +147,17 @@ describe('eShop cards', () => {
     ]);
   });
 
-  it('links to Eneba’s own search for a card', () => {
-    expect(enebaSearchUrl(3000, 'JPY')).toBe('https://www.eneba.com/store/gift-cards?text=Nintendo%20eShop%203000%20JPY');
+  it('links to Eneba filtered to one country’s eShop cards, cheapest first', () => {
+    expect(enebaCountryUrl('JP')).toBe('https://www.eneba.com/store/gift-cards?drms[]=nintendo&regions[]=japan&sortBy=PRICE_ASC&text=Nintendo%20eShop');
+    // Euro cards are sold as "Europe" or for one country
+    expect(enebaCountryUrl('DE')).toContain('regions[]=europe&regions[]=germany');
+    expect(enebaCardUrl('JP', 3000, 'JPY')).toBe('https://www.eneba.com/store/gift-cards?drms[]=nintendo&regions[]=japan&sortBy=PRICE_ASC&text=Nintendo%20eShop%203000%20JPY');
+    // Eneba doesn't sell Korean cards
+    expect(enebaCountryUrl('KR')).toBeUndefined();
+  });
+
+  it('has an Eneba region for every card country except Korea', () => {
+    for (const range of ESHOP_CARDS) for (const code of range.countries) expect(code === 'KR' || !!enebaCountryUrl(code)).toBe(true);
   });
 
   it('only lists countries whose card values were confirmed, with a source', () => {

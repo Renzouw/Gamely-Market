@@ -60,10 +60,51 @@ export function cardValues(range: CardRange): { amount: number; digitalOnly: boo
 export const CARD_COUNTRIES: Region[] = SWITCH_REGIONS.filter((r) => cardsFor(r.code));
 
 /**
- * Eneba's own search for one card. Eneba is a marketplace where other
- * sellers list codes, usually below face value. We only link to it: their
- * terms don't allow collecting their prices automatically.
+ * Eneba is a marketplace where other sellers list codes, usually below face
+ * value. We only link to it: their terms don't allow collecting their
+ * prices automatically.
+ *
+ * Eneba's region filter names, as its store page uses them (checked
+ * 6 Nov 2026). Euro cards are sold as "Europe" or for one country. Eneba
+ * doesn't sell Korean cards.
  */
-export function enebaSearchUrl(amount: number, currency: string): string {
-  return `https://www.eneba.com/store/gift-cards?text=${encodeURIComponent(`Nintendo eShop ${amount} ${currency}`)}`;
+const ENEBA_REGIONS: Record<string, string[]> = {
+  US: ['united_states', 'north_america'],
+  CA: ['canada'],
+  MX: ['mexico'],
+  BR: ['brazil'],
+  GB: ['united_kingdom'],
+  DE: ['europe', 'germany'],
+  FR: ['europe', 'france'],
+  ES: ['europe', 'spain'],
+  IT: ['europe', 'italy'],
+  NL: ['europe', 'netherlands'],
+  PT: ['europe', 'portugal'],
+  FI: ['europe', 'finland'],
+  CH: ['switzerland'],
+  NO: ['norway'],
+  SE: ['sweden'],
+  DK: ['denmark'],
+  PL: ['poland'],
+  AU: ['australia'],
+  JP: ['japan'],
+};
+
+export const ENEBA_STORE = 'https://www.eneba.com/store/gift-cards';
+
+function enebaUrl(country: string, text: string): string | undefined {
+  const regions = ENEBA_REGIONS[country];
+  if (!regions) return undefined;
+  const params = ['drms[]=nintendo', ...regions.map((r) => `regions[]=${r}`), 'sortBy=PRICE_ASC', `text=${encodeURIComponent(text)}`];
+  return `${ENEBA_STORE}?${params.join('&')}`;
+}
+
+/** Every Nintendo eShop card Eneba sells for one country, cheapest first. */
+export function enebaCountryUrl(country: string): string | undefined {
+  return enebaUrl(country, 'Nintendo eShop');
+}
+
+/** Eneba's listing for one card value in one country. */
+export function enebaCardUrl(country: string, amount: number, currency: string): string | undefined {
+  return enebaUrl(country, `Nintendo eShop ${amount} ${currency}`);
 }
