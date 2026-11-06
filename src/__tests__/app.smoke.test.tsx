@@ -8,6 +8,10 @@ import { checkServer, useServer } from '../api/server';
 import { useSettings } from '../state/settings';
 import { useWatchlist } from '../state/watchlist';
 
+// The first render loads every screen of the app. On a cold Jest cache (a fresh
+// clone, or after `--no-cache`) that takes well over Jest's 5 second default.
+jest.setTimeout(60_000);
+
 jest.mock('expo-font', () => ({ ...jest.requireActual('expo-font'), useFonts: () => [true, null] }));
 jest.mock('@shopify/flash-list', () => {
   const { FlatList } = jest.requireActual('react-native');

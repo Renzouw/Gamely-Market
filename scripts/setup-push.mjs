@@ -154,7 +154,7 @@ Expo's credentials tool opens next. Choose these:
   Then                        Manage your Google Service Account Key for Push Notifications (FCM V1)
   Then                        Set up a Google Service Account Key for Push Notifications (FCM V1)
   (if it asks which key)      [Upload a new service account key]
-  "Would you like to use this file?"   Yes
+  When it finds the key file in this folder and asks to use it, answer Yes (press Y)
 When it says "Google Service Account Key assigned", pick Go back, then Exit.
 `);
   await ask('Press Enter to open it. ');
