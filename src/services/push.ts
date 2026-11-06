@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import type { DeviceSettings } from '@shared/api';
 import { api, onDeviceReset } from '../api/client';
+import { useServer } from '../api/server';
 import { deviceTimeZone, useSettings } from '../state/settings';
 
 if (Platform.OS !== 'web') {
@@ -54,8 +55,8 @@ export const markWaitingForSettings = () => void (waitingForSettings = true);
 export async function enableAlerts(): Promise<EnableResult> {
   const set = useSettings.getState().set;
   set({ alertsPrompted: true });
-  const unavailable = pushUnavailableReason();
-  if (unavailable) return { ok: false, reason: 'unavailable', message: unavailable };
+  // Notifications still work without server push: the phone checks and alerts by itself
+  if (Platform.OS === 'web') return { ok: false, reason: 'unavailable', message: 'Price alerts work in the iOS and Android apps.' };
   let perm = await Notifications.getPermissionsAsync();
   if (!perm.granted && perm.canAskAgain) perm = await Notifications.requestPermissionsAsync();
   set({ alertsEnabled: perm.granted });
@@ -68,7 +69,7 @@ export async function enableAlerts(): Promise<EnableResult> {
  * permission in the OS settings while the app is in the background.
  */
 export async function reconcilePermission(): Promise<void> {
-  if (pushUnavailableReason()) return;
+  if (Platform.OS === 'web') return;
   const { alertsEnabled, set } = useSettings.getState();
   const perm = await Notifications.getPermissionsAsync();
   if (alertsEnabled && !perm.granted) set({ alertsEnabled: false });
@@ -83,6 +84,8 @@ onDeviceReset(() => (lastSent = ''));
 /** Tell the server where and how to reach this phone. Cheap to call often; it only sends changes. */
 /** Returns true when settings were sent (so server-side values like converted targets may have changed). */
 export async function syncDevice(): Promise<boolean> {
+  // Nothing to tell when the server isn't around; it gets everything once it's back
+  if (useServer.getState().mode !== 'server') return false;
   const s = useSettings.getState();
   const body: DeviceSettings = {
     pushToken: s.alertsEnabled ? ((await pushToken()) ?? null) : null,

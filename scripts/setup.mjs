@@ -73,13 +73,19 @@ if (!existsSync(serverEnv)) {
 console.log(`
 ✓ Setup done.
 
-Next, open two terminals in this folder:
+Next:
 
-  1. Start the server:   npm run server
-     (it starts fetching real prices; the first catalog sync takes a few minutes)
+  1. Start the server whenever you log in (recommended):
+       npm run autostart
+     or run it just for now:  npm run server
+     The first catalog sync takes a few minutes.
 
-  2. Start the app:      npm start
+  2. Try the app:        npm start
      then scan the QR code with Expo Go on your phone.
+     Or build the installable app:  npm run build:android
+
+In the app, Settings > Gamely server takes this address: ${apiUrl}
+When your PC is off, the app keeps working in phone-only mode.
 
 Your phone must be on the same Wi-Fi as this PC.${ip ? '' : `
 

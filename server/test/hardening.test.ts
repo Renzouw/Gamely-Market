@@ -3,7 +3,7 @@ import { DEFAULT_ALERTS } from '@shared/api';
 import { planAlertCandidates } from '../src/alerts/plan';
 import { queueAlertsForChanges } from '../src/alerts/run';
 import { createApp } from '../src/api/app';
-import { dailyBest } from '../src/api/history';
+import { dailyBest } from '@shared/history';
 import { parseCursor } from '../src/api/listings';
 import { config } from '../src/config';
 import { all, get, openDb, run, type Db } from '../src/db';
@@ -170,5 +170,27 @@ describe('devices and watches', () => {
     let last = 0;
     for (let i = 0; i < 12; i++) last = (await app.request('/v1/devices', { method: 'POST', headers: { 'X-Forwarded-For': `10.0.0.${i}` } })).status;
     expect(last).toBe(429);
+  });
+});
+
+describe('games found by the phone', () => {
+  it('starts tracking a game the phone watched in phone-only mode', async () => {
+    const app = createApp(db);
+    const d = await newDevice(app);
+    const res = await app.request('/v1/watches/sw:eu:70010000012345', {
+      method: 'PUT',
+      headers: d.headers,
+      body: JSON.stringify({ target: 20, game: { platform: 'switch2', title: 'Found Offline', productCode: 'BEEPABCDB' } }),
+    });
+    expect(res.status).toBe(200);
+    expect(get(db, "SELECT title, platform FROM games WHERE id = 'sw:eu:70010000012345'")).toEqual({ title: 'Found Offline', platform: 'switch2' });
+    expect(get(db, "SELECT game_id FROM game_ids WHERE grp = 'europe' AND nsuid = '70010000012345'")).toEqual({ game_id: 'sw:eu:70010000012345' });
+  });
+
+  it('refuses ids it could never have made', async () => {
+    const app = createApp(db);
+    const d = await newDevice(app);
+    const res = await app.request('/v1/watches/anything', { method: 'PUT', headers: d.headers, body: JSON.stringify({ game: { platform: 'steam', title: 'x' } }) });
+    expect(res.status).toBe(404);
   });
 });

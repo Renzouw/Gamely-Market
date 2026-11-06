@@ -11,8 +11,8 @@ import { americasEnabled, config } from '../config';
 import { all, get, placeholders, run, type Db } from '../db';
 import { readFx } from '../ingest/fx';
 import { searchSteam } from '../sources/steam';
-import { getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow } from '../store';
-import { dailyBest, type HistoryRow } from './history';
+import { attachNsuid, gameIdForNsuid, getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow } from '../store';
+import { dailyBest, type HistoryRow } from '@shared/history';
 import { effectiveRegions, listDeals, searchGames } from './listings';
 import { refreshAndAlert } from '../alerts/run';
 import { activeEvents } from '../events/run';
@@ -370,12 +370,36 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
   app.put('/v1/watches/:gameId', requireDevice, async (c) => {
     const d = c.get('device');
     const gameId = (c.req.param('gameId') ?? '');
-    const g = getGame(db, gameId);
-    if (!g) return c.json({ error: 'Game not found' }, 404);
     const body = z
-      .object({ target: z.number().min(0).max(1e9).nullable().optional(), alerts: alertSchema.optional() })
+      .object({
+        target: z.number().min(0).max(1e9).nullable().optional(),
+        alerts: alertSchema.optional(),
+        // Sent by the app for games it found on its own (phone-only mode)
+        game: z
+          .object({
+            platform: z.enum(['switch2', 'switch', 'steam']),
+            title: z.string().min(1).max(200),
+            image: z.string().url().max(500).optional(),
+            publisher: z.string().max(200).optional(),
+            productCode: z.string().max(20).optional(),
+          })
+          .optional(),
+      })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'Bad request' }, 400);
+    if (!getGame(db, gameId) && body.data.game) {
+      // Only ids the server could have created itself: a Steam app or a European eShop listing
+      const steam = gameId.match(/^steam:(\d{1,10})$/);
+      const eu = gameId.match(/^sw:eu:(\d{10,20})$/);
+      const g = body.data.game;
+      if (steam && g.platform === 'steam') {
+        upsertGame(db, { id: gameId, platform: 'steam', title: g.title, image: g.image, publisher: g.publisher, steamAppId: Number(steam[1]), storeUrl: `https://store.steampowered.com/app/${steam[1]}/` });
+      } else if (eu && g.platform !== 'steam' && !gameIdForNsuid(db, 'europe', eu[1])) {
+        upsertGame(db, { id: gameId, platform: g.platform, title: g.title, image: g.image, publisher: g.publisher, productCode: g.productCode });
+        attachNsuid(db, 'europe', eu[1], gameId, 'source');
+      }
+    }
+    if (!getGame(db, gameId)) return c.json({ error: 'Game not found' }, 404);
     const existing = get<{ target: number | null; alerts: string }>(db, 'SELECT target, alerts FROM watches WHERE device_id = ? AND game_id = ?', d.id, gameId);
     if (!existing) {
       const count = get<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM watches WHERE device_id = ?', d.id)?.n ?? 0;

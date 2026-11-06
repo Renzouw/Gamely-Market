@@ -44,8 +44,10 @@ Docs: https://docs.expo.dev/eas/index.md
 
 Gamely compares game prices across Nintendo eShop regions and Steam. Two parts:
 
-- App (repo root): `src/app/` screens (Expo Router), `src/components/`, `src/hooks/queries.ts` (all data comes from our API via `src/api/client.ts`), `src/theme/` (tokens and the `Text` type scale, see DESIGN.md).
+- App (repo root): `src/app/` screens (Expo Router), `src/components/`, `src/hooks/queries.ts`, `src/theme/` (tokens and the `Text` type scale, see DESIGN.md).
+  - All reads go through `src/api/data.ts`, which uses the Gamely server when reachable (`src/api/server.ts` tracks that) and falls back to phone-only mode (`src/direct/`, which calls the stores directly).
+  - The watchlist lives on the phone (`src/state/watchlist.ts`) and syncs to the server (`src/services/watchSync.ts`). Phone-side alerts: `src/services/localAlerts.ts` and `localPlan.ts`.
 - Server (`server/`): store adapters in `src/sources/`, ingestion and matching in `src/ingest/`, alert planning in `src/alerts/`, push in `src/push/`, HTTP API in `src/api/`, schedule in `src/jobs.ts`.
-- `shared/` holds types, regions, price maths and the API contract. Keep it free of React and Node APIs.
+- `shared/` holds types, regions, price maths, the API contract, price history and the store parsers (`shared/stores/`) used by both the server and phone-only mode. Keep it free of React and Node APIs.
 
 Before you finish: `npm test && npm run typecheck` at the root, and `npm test && npm run typecheck` in `server/`.

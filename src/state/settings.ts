@@ -26,6 +26,8 @@ export interface Settings {
   eventBigDeals: boolean;
   eventPlatforms: ('switch2' | 'switch' | 'steam')[];
   eventMinDiscount: number;
+  /** Your Gamely server, e.g. http://192.168.1.20:8787. Empty uses the build's default. */
+  serverUrl: string;
 }
 
 interface SettingsState extends Settings {
@@ -72,6 +74,7 @@ export const useSettings = create<SettingsState>()(
         eventBigDeals: true,
         eventPlatforms: ['switch2', 'switch', 'steam'],
         eventMinDiscount: 50,
+        serverUrl: '',
         set: (patch) => set(patch),
         toggleSwitchRegion: (code) => set((s) => ({ switchRegions: toggle(s.switchRegions, code) })),
         toggleSteamRegion: (code) => set((s) => ({ steamRegions: toggle(s.steamRegions, code) })),
@@ -80,7 +83,7 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'gamely.settings',
       storage: persistStorage,
-      version: 3,
+      version: 4,
       migrate: (old) =>
         ({
           alertsPrompted: false,
@@ -91,6 +94,7 @@ export const useSettings = create<SettingsState>()(
           eventBigDeals: true,
           eventPlatforms: ['switch2', 'switch', 'steam'],
           eventMinDiscount: 50,
+          serverUrl: '',
           ...(old as object),
         }) as SettingsState,
     },

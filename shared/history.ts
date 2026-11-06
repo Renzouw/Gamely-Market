@@ -1,6 +1,6 @@
-import type { HistoryPoint } from '@shared/api';
-import { convert } from '@shared/pricing';
-import type { FxRates } from '@shared/types';
+import type { HistoryPoint } from './api';
+import { convert } from './pricing';
+import type { FxRates } from './types';
 
 export interface HistoryRow {
   country: string;

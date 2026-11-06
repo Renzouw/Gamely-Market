@@ -1,35 +1,14 @@
 import { config } from '../../config';
 import { getJson, qs } from '../http';
-import { productCore } from '@shared/match';
+import { jpSearchQuery, pickJapanMatch, type JpResponse } from '@shared/stores/nintendo';
 
-/**
- * Nintendo Japan's public software search. Titles are in Japanese, so we
- * match by product code ("HACPAAAAA") instead of by name. This is best
- * effort: games without a matching code simply won't show a Japan price.
- */
+export { pickJapanMatch } from '@shared/stores/nintendo';
+export type { JpItem } from '@shared/stores/nintendo';
 
-export interface JpItem {
-  nsuid?: string;
-  title?: string;
-  pcode?: string;
-  icode?: string;
-}
-
-interface JpResponse {
-  result?: { items?: JpItem[] };
-}
-
-export function pickJapanMatch(items: JpItem[], productCode: string): string | undefined {
-  const want = productCore(productCode);
-  if (!want) return undefined;
-  const hit = items.find((it) => it.nsuid && productCore(it.pcode ?? it.icode) === want);
-  return hit?.nsuid;
-}
-
+/** Japan lists titles in Japanese, so games are matched by product code. */
 export async function findJapanNsuid(productCode: string | undefined): Promise<string | undefined> {
-  const core = productCore(productCode);
-  if (!core) return undefined;
-  const url = `${config.upstream.nintendoJpSearch}?${qs({ q: core.slice(3), limit: 30, page: 1 })}`;
-  const data = await getJson<JpResponse>(url);
+  const q = productCode ? jpSearchQuery(productCode) : undefined;
+  if (!q) return undefined;
+  const data = await getJson<JpResponse>(`${config.upstream.nintendoJpSearch}?${qs(q)}`);
   return pickJapanMatch(data.result?.items ?? [], productCode!);
 }

@@ -5,6 +5,7 @@ import { Platform as RNPlatform, ScrollView, View } from 'react-native';
 import { HOME_CURRENCIES, SWITCH_REGIONS } from '@shared/regions';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Group, Row, Sheet, SheetOption, SwitchRow } from '../../components/ui';
+import { useDataMode } from '../../hooks/queries';
 import { syncDevice } from '../../services/push';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings, type ThemePref } from '../../state/settings';
@@ -29,6 +30,7 @@ export default function SettingsScreen() {
   const { c } = useTheme();
   const s = useSettings();
   const qc = useQueryClient();
+  const mode = useDataMode();
   const [picker, setPicker] = useState<Picker>();
   const home = SWITCH_REGIONS.find((r) => r.code === s.homeRegion);
   const regionCount = new Set([...s.switchRegions, s.homeRegion]).size;
@@ -52,7 +54,7 @@ export default function SettingsScreen() {
       </Group>
 
       <Group title="Alerts" footer={s.quietHours ? `Alerts that land between ${hourLabel(s.quietStart)} and ${hourLabel(s.quietEnd)} wait until morning.` : undefined}>
-        <SwitchRow first label="Price alerts" detail={RNPlatform.OS === 'web' ? 'Available in the iOS and Android apps' : 'For games on your watchlist'} value={s.alertsEnabled} onChange={toggleAlerts} disabled={RNPlatform.OS === 'web'} />
+        <SwitchRow first label="Price alerts" detail={RNPlatform.OS === 'web' ? 'Available in the iOS and Android apps' : 'Instant while your server is on. Otherwise checked when you open the app and a few times a day.'} value={s.alertsEnabled} onChange={toggleAlerts} disabled={RNPlatform.OS === 'web'} />
         <SwitchRow label="Quiet hours" value={s.quietHours} onChange={(v) => s.set({ quietHours: v })} />
         {s.quietHours ? (
           <>
@@ -78,7 +80,7 @@ export default function SettingsScreen() {
 
       <Group title="App">
         <Row first label="Appearance" value={{ system: 'Match system', dark: 'Dark', light: 'Light' }[s.theme]} onPress={() => setPicker('theme')} />
-        <Row label="Data sources" detail="Where prices come from and how fresh they are" onPress={() => router.push('/settings/sources')} />
+        <Row label="Gamely server" value={mode === 'server' ? 'Connected' : mode === 'direct' ? 'Phone-only mode' : '…'} onPress={() => router.push('/settings/sources')} />
         <Row
           label="Refresh everything"
           onPress={() => {

@@ -4,6 +4,9 @@
  * its provider, which unit tests and web screenshots can't see.
  */
 import { act, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
+import { checkServer, useServer } from '../api/server';
+import { useSettings } from '../state/settings';
+import { useWatchlist } from '../state/watchlist';
 
 jest.mock('expo-font', () => ({ ...jest.requireActual('expo-font'), useFonts: () => [true, null] }));
 jest.mock('@shopify/flash-list', () => {
@@ -49,6 +52,7 @@ const prices = [price('US', 'USD', 80, 60), price('GB', 'GBP', 64, 48)];
 
 let watches: unknown[] = [];
 let down = false;
+let storesDown = false;
 const calls: string[] = [];
 
 function respond(url: string, init?: RequestInit) {
@@ -58,8 +62,23 @@ function respond(url: string, init?: RequestInit) {
   const method = init?.method ?? 'GET';
   calls.push(`${method} ${u.pathname}`);
   const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
+  // The phone talking to the stores directly (phone-only mode)
+  if (raw.host === 'searching.nintendo-europe.com' || raw.host === 'api.ec.nintendo.com' || raw.host.includes('frankfurter') || raw.host.includes('er-api')) {
+    if (storesDown) return Promise.reject(new TypeError('Network request failed'));
+    if (raw.host === 'searching.nintendo-europe.com') {
+      return json({ response: { numFound: 1, docs: [{ title: 'Offline Kart', nsuid_txt: ['70010000000009'], playable_on_txt: ['BEE'] }] } });
+    }
+    if (raw.host === 'api.ec.nintendo.com') {
+      const country = raw.searchParams.get('country')!;
+      const currency = country === 'GB' ? 'GBP' : 'EUR';
+      return json({ prices: [{ title_id: 70010000000009, sales_status: 'onsale', regular_price: { currency, raw_value: '40' }, discount_price: { currency, raw_value: '20' } }] });
+    }
+    return json({ base: 'USD', date: '2026-11-05', rates: { GBP: 0.8, EUR: 0.9 } });
+  }
   if (down) return Promise.reject(new TypeError('Network request failed'));
   switch (true) {
+    case u.pathname === '/health':
+      return json({ ok: true });
     case u.pathname === '/v1/fx':
       return json({ base: 'USD', rates: { USD: 1, GBP: 0.8 }, sources: { USD: 'ecb', GBP: 'ecb' }, asOf: '2026-11-05', updatedAt: Date.now() });
     case u.pathname === '/v1/events':
@@ -90,7 +109,11 @@ function respond(url: string, init?: RequestInit) {
 beforeEach(() => {
   watches = [];
   down = false;
+  storesDown = false;
   calls.length = 0;
+  useSettings.setState({ serverUrl: 'http://gamely.test:8787', homeRegion: 'GB', homeCurrency: 'USD' });
+  useServer.setState({ mode: undefined, lastOk: undefined });
+  useWatchlist.setState({ items: {}, removed: [] });
   globalThis.fetch = jest.fn(respond) as unknown as typeof fetch;
 });
 
@@ -115,12 +138,35 @@ it('opens a game and watches it', async () => {
   expect(await screen.findByText('Alert me when')).toBeTruthy();
 });
 
-it('explains the problem when the server is unreachable', async () => {
+it('switches to phone-only mode when the server is off', async () => {
   down = true;
   await renderRouter(appDir, { initialUrl: '/' });
-  expect(await screen.findByText('Couldn’t load deals', {}, { timeout: 8000 })).toBeTruthy();
-  expect(screen.getByText('Can’t reach Gamely. Check your connection.')).toBeTruthy();
+  expect(await screen.findByText('Offline Kart', {}, { timeout: 8000 })).toBeTruthy();
+  expect(screen.getByText(/phone-only mode/)).toBeTruthy();
 }, 15_000);
+
+it('explains the problem when neither the server nor the stores answer', async () => {
+  down = true;
+  storesDown = true;
+  await renderRouter(appDir, { initialUrl: '/' });
+  expect(await screen.findByText('Couldn’t load deals', {}, { timeout: 8000 })).toBeTruthy();
+  expect(screen.getByText('Can’t reach the Nintendo eShop. Check your connection.')).toBeTruthy();
+}, 15_000);
+
+it('keeps a game watched while offline, and syncs it when the server is back', async () => {
+  down = true;
+  await renderRouter(appDir, { initialUrl: '/game/sw:eu:70010000000009' });
+  expect(await screen.findByText('Offline Kart', {}, { timeout: 8000 })).toBeTruthy();
+  await act(async () => fireEvent.press(screen.getByLabelText('Watch price')));
+  expect(useWatchlist.getState().items['sw:eu:70010000000009']).toBeTruthy();
+  expect(calls.some((c) => c.startsWith('PUT /v1/watches/'))).toBe(false);
+  // The PC comes back on
+  down = false;
+  await act(async () => {
+    await checkServer();
+  });
+  await waitFor(() => expect(calls).toContain('PUT /v1/watches/sw:eu:70010000000009'), { timeout: 8000 });
+}, 20_000);
 
 it.each(['/directory', '/watchlist', '/settings', '/settings/regions', '/settings/sources'])('renders %s without crashing', async (url) => {
   const r = await renderRouter(appDir, { initialUrl: url });

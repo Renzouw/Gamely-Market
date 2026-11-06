@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { pickMatch, publisherKey } from '../src/ingest/match';
 import { nextSendTime, planAlerts, planEnding, type DeviceCtx, type WatchCtx } from '../src/alerts/plan';
-import { dailyBest } from '../src/api/history';
+import { dailyBest } from '@shared/history';
 import { mergeFx } from '../src/sources/fx';
 import { buildMessages } from '../src/push/dispatch';
 import type { GameRow, PriceRow } from '../src/store';

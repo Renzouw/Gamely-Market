@@ -11,3 +11,4 @@ coverage/
 expo-env.d.ts
 server/node_modules/
 server/data/
+server/dist/

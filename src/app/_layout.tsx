@@ -16,6 +16,13 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform as RNPlatform } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { onDeviceReset } from '../api/client';
+import { checkServer, useServer } from '../api/server';
+import { convert } from '@shared/pricing';
+import type { FxRates } from '@shared/types';
+import { setBackgroundChecks } from '../services/backgroundCheck';
+import { runLocalCheck } from '../services/localAlerts';
+import { syncWatches } from '../services/watchSync';
+import { useWatchlist } from '../state/watchlist';
 import { BackButton } from '../components/ui';
 import { useNotificationTaps } from '../hooks/useNotificationTaps';
 import { reconcilePermission, syncDevice } from '../services/push';
@@ -54,36 +61,86 @@ function shouldPersist(q: Query): boolean {
 function AppEffects() {
   const qc = useQueryClient();
   useNotificationTaps();
+  const mode = useServer((x) => x.mode);
+  const serverAddress = useSettings((x) => x.serverUrl);
+  const alertsEnabled = useSettings((x) => x.alertsEnabled);
   const synced = useSettings(
     useShallow((s) => [s.homeRegion, s.homeCurrency, s.switchRegions, s.steamRegions, s.alertsEnabled, s.quietHours, s.quietStart, s.quietEnd, s.eventStoreSales, s.eventBigDeals, s.eventPlatforms, s.eventMinDiscount]),
   );
+  const watchVersion = useWatchlist((x) => Object.values(x.items).map((w) => w.updatedAt).join(',') + x.removed.join(','));
+
+  // Look for the server at launch and whenever its address changes
+  useEffect(() => {
+    void checkServer();
+  }, [serverAddress]);
+
+  // In phone-only mode, look again every couple of minutes so the app switches back on its own
+  useEffect(() => {
+    if (mode !== 'direct') return;
+    const t = setInterval(() => void checkServer(), 2 * 60_000);
+    return () => clearInterval(t);
+  }, [mode]);
+
+  // The server just became reachable (or the watchlist changed): bring it up to date
+  useEffect(() => {
+    if (mode !== 'server') return;
+    void syncWatches();
+  }, [mode, watchVersion]);
 
   useEffect(() => {
+    if (mode !== 'server') return;
     const sync = () =>
       syncDevice()
         .then((sent) => {
-          // The server may have converted target prices to a new currency
           if (sent) qc.invalidateQueries({ queryKey: ['watches'] });
         })
         .catch(() => undefined);
     const t = setTimeout(sync, 400);
     return () => clearTimeout(t);
-  }, [qc, ...synced]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [qc, mode, ...synced]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Target prices follow a currency change
+  const currency = useSettings((x) => x.homeCurrency);
+  const [lastCurrency, setLastCurrency] = useState(currency);
+  if (currency !== lastCurrency) {
+    setLastCurrency(currency);
+    const fx = qc.getQueryData<FxRates>(['fx']);
+    const rate = fx ? convert(1, lastCurrency, currency, fx) : undefined;
+    if (rate) useWatchlist.getState().convertTargets(rate);
+  }
 
   useEffect(() => {
+    void setBackgroundChecks(alertsEnabled);
+  }, [alertsEnabled]);
+
+  // Phone-side price check on open and on return, at most every 15 minutes
+  useEffect(() => {
+    let last = 0;
+    const check = () => {
+      if (Date.now() - last < 15 * 60_000) return;
+      last = Date.now();
+      runLocalCheck()
+        .then(() => qc.invalidateQueries({ queryKey: ['activity'] }))
+        .catch(() => undefined);
+    };
+    const first = setTimeout(check, 4000);
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      reconcilePermission()
-        .catch(() => undefined)
-        .finally(() => syncDevice().catch(() => undefined));
+      void checkServer().then(() => {
+        reconcilePermission()
+          .catch(() => undefined)
+          .finally(() => syncDevice().catch(() => undefined));
+        check();
+      });
     });
     // A new registration starts empty on the server: send settings straight away
     const off = onDeviceReset(() => void syncDevice().catch(() => undefined));
     return () => {
+      clearTimeout(first);
       sub.remove();
       off();
     };
-  }, []);
+  }, [qc]);
   return null;
 }
 
@@ -131,7 +188,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="game/[key]" options={{ title: '', headerTransparent: true, headerLeft: () => <BackButton /> }} />
           <Stack.Screen name="settings/regions" options={{ title: 'Regions' }} />
-          <Stack.Screen name="settings/sources" options={{ title: 'Data sources' }} />
+          <Stack.Screen name="settings/sources" options={{ title: 'Server and data' }} />
         </Stack>
       </ThemeProvider>
     </PersistQueryClientProvider>

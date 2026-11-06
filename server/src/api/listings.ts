@@ -79,35 +79,44 @@ function rankDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now: number): 
 }
 
 type Ranked = { item: ApiListItem; s: PriceSummary; game: GameRow };
+/** What the cache keeps: just the order. Pages are built from the shared sale index on demand. */
+type Entry = { game: GameRow; prices: PriceRow[] };
 
 /**
  * Ranked results per distinct query, reused until prices change or the
  * minute turns (so sale-end cutoffs stay accurate). Ranking 3,000 sale games
- * costs ~150ms; a cache hit costs well under 1ms.
+ * costs ~150ms; a cache hit costs well under 1ms. Entries point into the
+ * shared sale index instead of copying prices, so each cached query costs a
+ * few kilobytes, not megabytes.
  */
-const rankedCache = new Map<string, { version: number; minute: number; rows: Ranked[] }>();
-const RANKED_CACHE_MAX = 300;
+const rankedCache = new Map<string, { version: number; minute: number; rows: Entry[] }>();
+const RANKED_CACHE_MAX = 200;
 
 export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = Date.now()): ApiList {
   const key = JSON.stringify([q.platform, q.sort, q.home, q.currency, [...q.regions].sort(), q.minDiscount, q.maxPrice, q.abroad, fx?.updatedAt]);
   const minute = Math.floor(now / 60_000);
   let hit = rankedCache.get(key);
   if (!hit || hit.version !== version || hit.minute !== minute) {
-    hit = { version, minute, rows: rankDeals(db, q, fx, now) };
+    const index = new Map(saleIndex(db, q.platform).map((e) => [e.game.id, e]));
+    hit = { version, minute, rows: rankDeals(db, q, fx, now).map((r) => index.get(r.game.id)!) };
     rankedCache.delete(key);
     rankedCache.set(key, hit);
     if (rankedCache.size > RANKED_CACHE_MAX) rankedCache.delete(rankedCache.keys().next().value!);
   }
-  const scored = hit.rows;
+  const { regions } = effectiveRegions(q.platform, q.home, q.regions);
+  const wanted = new Set(regions);
   const limit = Math.min(q.limit ?? 30, 100);
   const offset = parseCursor(q.cursor);
-  const page = scored.slice(offset, offset + limit);
+  const page = hit.rows.slice(offset, offset + limit);
   const nsuids = nsuidsForGames(db, page.map((p) => p.game.id));
-  const items = page.map((p) => ({ ...p.item, game: { ...p.item.game, nsuids: nsuids.get(p.game.id) } }));
+  const items = page.map((e) => ({
+    game: rowToGame(e.game, nsuids.get(e.game.id)),
+    prices: e.prices.filter((p) => wanted.has(p.country)).map((p) => rowToPrice(p, now)),
+  }));
   return {
     items,
-    total: scored.length,
-    nextCursor: offset + limit < scored.length ? String(offset + limit) : undefined,
+    total: hit.rows.length,
+    nextCursor: offset + limit < hit.rows.length ? String(offset + limit) : undefined,
     checkedAt: Math.max(0, ...items.flatMap((i) => i.prices.map((p) => p.checkedAt))) || undefined,
   };
 }

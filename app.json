@@ -8,7 +8,13 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gamely.market"
+      "bundleIdentifier": "com.gamely.market",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Gamely connects to your own Gamely server on your Wi-Fi to get prices and alerts."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -35,7 +41,16 @@
         }
       ],
       "expo-secure-store",
-      "expo-asset"
+      "expo-asset",
+      "expo-background-task",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "scheme": "gamely",
     "backgroundColor": "#0E1013",

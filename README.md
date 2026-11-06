@@ -61,12 +61,35 @@ Both can be switched off, limited to certain platforms, and the big-deal thresho
 ### Quick start on your computer
 
 ```bash
-npm run setup     # installs everything and writes the config for your Wi-Fi
-npm run server    # terminal 1: the price server
-npm start         # terminal 2: the app; scan the QR code with Expo Go
+npm run setup       # installs everything and writes the config for your Wi-Fi
+npm run autostart   # the price server starts whenever you log in (npm run server runs it once)
+npm start           # the app in Expo Go; scan the QR code with your phone
 ```
 
-Your phone needs to be on the same Wi-Fi as the computer. Run `npm run setup` again if your computer's address changes. The sections below explain each part.
+Run `npm run setup` again if your computer's address changes, then update it in the app under Settings › Gamely server.
+
+### With and without your PC
+
+The app works either way and switches on its own:
+
+| | PC off (or you're away from home) | PC on, server running |
+|---|---|---|
+| Deals, directory, regional prices | Yes, fetched live by the phone | Yes, faster |
+| Watchlist and target prices | Yes (stored on the phone) | Yes (synced to the server) |
+| Alert when a watched game goes on sale | When you open the app, plus a few background checks a day | Within about 10 minutes, even with the app closed |
+| Store-wide sale and big-deal alerts | No | Yes |
+| Americas eShops | No | With the Americas catalog set up |
+| Price history | What this phone has seen | Full history |
+
+When the server is reachable, phone-side alerts stay quiet so nothing arrives twice.
+
+### Auto-start and memory
+
+`npm run autostart` registers the server to start at login with no console window: a launcher in the Startup folder on Windows, a LaunchAgent on macOS, a systemd user service on Linux. None of them need admin rights. `npm run autostart:status` shows whether it's running and the last log lines. `npm run autostart:off` removes it.
+
+The server runs as a single precompiled Node process: about 80 to 100 MB of RAM normally, and up to roughly 150 to 180 MB with a full catalog. Its heap is capped at 256 MB. It's idle almost all the time, waking every few minutes to check prices. The database grows to about 50 to 100 MB on disk. Logs go to `server/data/server.log` and rotate at 5 MB.
+
+It only runs while the PC is awake. If the PC sleeps, the phone uses phone-only mode until it wakes.
 
 ### Server
 
@@ -95,13 +118,12 @@ Push alerts need a real phone and an EAS project ID in `app.json` (`expo.extra.e
 
 ### Install on your phone
 
-1. Deploy the server somewhere with HTTPS (see above). Release builds won't talk to a plain `http://` address.
-2. `npx eas-cli@latest login`, then `npx eas-cli@latest init` (this adds the project ID that push alerts need).
-3. Point the app at your server: `npx eas-cli@latest env:create --name EXPO_PUBLIC_API_URL --value https://your-server --environment preview --visibility plaintext`
-4. Android: `npx eas-cli@latest build --profile preview --platform android`, then open the link it prints on your phone and install the APK.
-5. iPhone (needs a paid Apple Developer account): `npx eas-cli@latest device:create` to register your phone, then `npx eas-cli@latest build --profile preview --platform ios` and open the link on the phone.
+```bash
+npm run build:android   # builds in Expo's cloud (free plan), then prints a link to install the APK
+npm run build:ios       # needs a paid Apple Developer account
+```
 
-To try it before any of that, run the server on your computer and open the app in Expo Go with `EXPO_PUBLIC_API_URL=http://<your computer's local IP>:8787 npx expo start`. Everything works except push alerts, which Expo Go doesn't support.
+The first run asks you to log in to Expo and links the project. When it finishes, open the link on your phone to install. Then in the app, go to Settings › Gamely server and enter the address `npm run setup` printed. Without it, the app runs in phone-only mode.
 
 ### Americas catalog
 

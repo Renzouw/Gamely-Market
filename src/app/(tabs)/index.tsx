@@ -11,7 +11,8 @@ import { errorText } from '../../api/client';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
-import { useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
+import { directSwitchCountries } from '../../direct';
+import { useDataMode, useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
 import { ago } from '../../lib/format';
@@ -64,7 +65,12 @@ export default function DealsScreen() {
     [big, cheap, abroad, limit, isSteam],
   );
   const q = useDeals(platform, sort, filters);
-  const regionCount = new Set([...prefs.switchRegions, prefs.home]).size;
+  const mode = useDataMode();
+  const phoneOnly = mode === 'direct';
+  // Phone-only mode can price the Europe/Oceania eShops; the rest need the server
+  const regionCount = phoneOnly
+    ? directSwitchCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions }).length
+    : new Set([...prefs.switchRegions, prefs.home]).size;
   const sortLabel = SORTS.find((s) => s.value === sort)!.label;
 
   const subtitle = isSteam ? `Steam ${steamStoreCountry(prefs.home).code} store, in ${prefs.currency}` : `Best of ${regionCount} eShops, in ${prefs.currency}`;
@@ -81,12 +87,12 @@ export default function DealsScreen() {
             variant="footnote"
             tone="subtle"
             style={{ marginTop: 2 }}
-            onPress={() => router.push('/settings/regions')}
+            onPress={() => router.push(phoneOnly ? '/settings/sources' : '/settings/regions')}
             accessibilityRole="link"
             accessibilityHint="Choose which regions to compare"
           >
             {subtitle}
-            {freshness ? ` · checked ${freshness}` : ''}
+            {phoneOnly ? ' · phone-only mode' : freshness ? ` · checked ${freshness}` : ''}
           </Text>
         }
       />

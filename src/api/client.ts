@@ -1,9 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import type { DeviceRegistration } from '@shared/api';
+import { reportServerDown, reportServerOk, serverUrl } from './server';
 
-/** The Gamely API. All store data comes through here, never straight from the stores. */
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8787').replace(/\/$/, '');
+/** The Gamely server's API. In phone-only mode the app uses src/direct instead. */
 
 export class ApiError extends Error {
   constructor(
@@ -15,19 +15,23 @@ export class ApiError extends Error {
 }
 
 const KEY = 'gamely.device';
-let device: DeviceRegistration | undefined;
+/** Called when this install gets a new identity, so cached device state can be resent. */
+const resetListeners = new Set<() => void>();
+let device: (DeviceRegistration & { url?: string }) | undefined;
 let registering: Promise<DeviceRegistration> | undefined;
 
-async function readStored(): Promise<DeviceRegistration | undefined> {
+type StoredDevice = DeviceRegistration & { url?: string };
+
+async function readStored(): Promise<StoredDevice | undefined> {
   try {
     const raw = Platform.OS === 'web' ? globalThis.localStorage?.getItem(KEY) : await SecureStore.getItemAsync(KEY);
-    return raw ? (JSON.parse(raw) as DeviceRegistration) : undefined;
+    return raw ? (JSON.parse(raw) as StoredDevice) : undefined;
   } catch {
     return undefined;
   }
 }
 
-async function store(d: DeviceRegistration) {
+async function store(d: StoredDevice) {
   const raw = JSON.stringify(d);
   if (Platform.OS === 'web') globalThis.localStorage?.setItem(KEY, raw);
   else await SecureStore.setItemAsync(KEY, raw);
@@ -35,14 +39,17 @@ async function store(d: DeviceRegistration) {
 
 /** This install's identity with the API. Created once, kept in the keychain. */
 export async function ensureDevice(): Promise<DeviceRegistration> {
-  if (device) return device;
+  const url = serverUrl();
+  if (device && device.url === url) return device;
   registering ??= (async () => {
     const stored = await readStored();
-    if (stored) return (device = stored);
-    const res = await fetch(`${API_URL}/v1/devices`, { method: 'POST' });
+    // A registration belongs to one server; a new server address means registering again
+    if (stored && (stored.url ?? url) === url) return (device = { ...stored, url });
+    const res = await fetch(`${url}/v1/devices`, { method: 'POST' });
     if (!res.ok) throw new ApiError(res.status, 'Could not register this device');
-    const d = (await res.json()) as DeviceRegistration;
+    const d: StoredDevice = { ...((await res.json()) as DeviceRegistration), url };
     await store(d);
+    resetListeners.forEach((fn) => fn());
     return (device = d);
   })().finally(() => (registering = undefined));
   return registering;
@@ -58,8 +65,7 @@ function qs(q?: Query): string {
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
-/** Called when this install gets a new identity, so cached device state can be resent. */
-const resetListeners = new Set<() => void>();
+
 export function onDeviceReset(fn: () => void) {
   resetListeners.add(fn);
   return () => resetListeners.delete(fn);
@@ -87,16 +93,20 @@ export async function api<T>(path: string, opts: ApiOpts = {}, retried = false):
     headers.Authorization = `Bearer ${creds.id}.${creds.secret}`;
   }
   let res: Response;
+  const base = serverUrl();
+  if (!base) throw new ApiError(0, 'No server set up.');
   try {
-    res = await fetch(`${API_URL}${path}${qs(opts.query)}`, {
+    res = await fetch(`${base}${path}${qs(opts.query)}`, {
       method: opts.method ?? 'GET',
       headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       signal: opts.signal,
     });
-  } catch {
-    throw new ApiError(0, "Can’t reach Gamely. Check your connection.");
+  } catch (e) {
+    if ((e as Error)?.name !== 'AbortError') reportServerDown();
+    throw new ApiError(0, 'Can’t reach Gamely. Check your connection.');
   }
+  reportServerOk();
   if (res.status === 401 && creds && !retried) {
     // The server no longer knows this install (e.g. its database was reset).
     // Register again and retry once, so the person never sees "Unknown device".
@@ -111,5 +121,7 @@ export async function api<T>(path: string, opts: ApiOpts = {}, retried = false):
 }
 
 export function errorText(e: unknown): string {
-  return e instanceof ApiError ? e.message : 'Something went wrong. Try again in a moment.';
+  // Server errors and store errors (phone-only mode) both carry a message written for people
+  if (e instanceof ApiError || (e instanceof Error && e.name === 'StoreError')) return e.message;
+  return 'Something went wrong. Try again in a moment.';
 }
