@@ -46,6 +46,22 @@ export interface DealQuery {
   limit?: number;
 }
 
+export type DirectorySort = 'popular' | 'cheapest' | 'discount' | 'newest' | 'title';
+
+/** Sort and filters for the Directory. Prices use the same rules as deals: the best price across `regions`, converted. */
+export interface DirectoryOptions {
+  sort?: DirectorySort;
+  /** Only games discounted in at least one of the regions */
+  onSale?: boolean;
+  minDiscount?: number;
+  /** In the caller's currency */
+  maxPrice?: number;
+  /** Only games at least this much cheaper abroad than at home (0.15 = 15%) */
+  abroad?: number;
+  /** Switch only: just this one eShop, and only games it sells */
+  country?: string;
+}
+
 export interface ApiLow {
   country: string;
   currency: string;

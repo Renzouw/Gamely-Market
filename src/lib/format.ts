@@ -23,6 +23,12 @@ export function shortDate(t: number | string | undefined): string | undefined {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
 }
 
+/** A round "under X" number that reads naturally in each currency */
+export function cheapLimit(currency: string): number {
+  const t: Record<string, number> = { JPY: 1500, KRW: 15000, CLP: 10000, COP: 40000, ARS: 10000, MXN: 200, BRL: 50, ZAR: 200, INR: 800, NOK: 100, SEK: 100, DKK: 75, CZK: 250, PLN: 40, PHP: 500, IDR: 150000, VND: 250000, THB: 350, TRY: 350, HKD: 80, SGD: 15, MYR: 40 };
+  return t[currency] ?? 10;
+}
+
 export function hourLabel(h: number): string {
   const d = new Date();
   d.setHours(h, 0, 0, 0);

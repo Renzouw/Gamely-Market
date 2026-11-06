@@ -1,9 +1,9 @@
-import type { ApiList, ApiListItem, DealQuery } from '@shared/api';
-import { summarize, type PriceSummary } from '@shared/pricing';
+import type { ApiList, ApiListItem, DealQuery, DirectoryOptions } from '@shared/api';
+import { convert, summarize, type PriceSummary } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { FxRates, Platform } from '@shared/types';
-import { all, type Db } from '../db';
-import { nsuidsForGames, pricesFor, rowToGame, rowToPrice, type GameRow, type PriceRow } from '../store';
+import { all, placeholders, type Db } from '../db';
+import { getGames, nsuidsForGames, pricesFor, rowToGame, rowToPrice, type GameRow, type PriceRow } from '../store';
 
 /**
  * Everything currently on sale for a platform, held in memory. Rebuilt only
@@ -128,28 +128,80 @@ export function listDeals(db: Db, q: DealQuery, fx: FxRates | undefined, now = D
 
 export type DirectoryPlatform = Platform | 'all-switch';
 
-/** With `country`, only games that eShop sells, priced there alone. */
-export function searchGames(db: Db, p: { platform: DirectoryPlatform; key: string; regions: string[]; country?: string; cursor?: string; limit?: number }, now = Date.now()): ApiList {
-  const platforms = p.platform === 'all-switch' ? ['switch', 'switch2'] : [p.platform];
-  const limit = Math.min(p.limit ?? 30, 100);
-  const offset = parseCursor(p.cursor);
-  const country = p.platform !== 'steam' ? p.country : undefined;
+export interface DirectoryQuery extends DirectoryOptions {
+  platform: DirectoryPlatform;
+  /** titleKey() of the search text, or '' */
+  key: string;
+  home: string;
+  currency: string;
+  regions: string[];
+  cursor?: string;
+  limit?: number;
+}
+
+/** True when the order or a filter depends on prices, not just the catalog. */
+const needsPrices = (q: DirectoryQuery) =>
+  q.platform !== 'steam' && (q.sort === 'cheapest' || q.sort === 'discount' || !!q.onSale || !!q.minDiscount || q.maxPrice !== undefined || !!q.abroad);
+
+const ORDER: Record<'popular' | 'newest' | 'title', string> = {
+  popular: 'COALESCE(rank, 1e9), title',
+  newest: "COALESCE(release_date, '') DESC, COALESCE(rank, 1e9)",
+  title: 'title_key, COALESCE(rank, 1e9)',
+};
+
+/** Ordered game ids per distinct price-aware query, reused like the deals cache. */
+const directoryCache = new Map<string, { version: number; minute: number; ids: string[] }>();
+
+/**
+ * Every game in the catalog, searched, sorted and filtered. With `country`,
+ * only games that eShop sells, priced there alone. Sorting or filtering by
+ * price streams the price rows once and keeps a few numbers per game, so the
+ * whole catalog's prices never sit in memory.
+ */
+export function searchGames(db: Db, q: DirectoryQuery, fx?: FxRates, now = Date.now()): ApiList {
+  const platforms = q.platform === 'all-switch' ? ['switch', 'switch2'] : [q.platform];
+  const limit = Math.min(q.limit ?? 30, 100);
+  const offset = parseCursor(q.cursor);
+  const country = q.platform !== 'steam' ? q.country : undefined;
   const where =
-    `platform IN (${platforms.map(() => '?').join(', ')})` +
-    (p.key ? ' AND title_key LIKE ?' : '') +
-    (country ? ' AND EXISTS (SELECT 1 FROM prices WHERE prices.game_id = games.id AND prices.country = ?)' : '');
+    `games.platform IN (${platforms.map(() => '?').join(', ')})` +
+    (q.key ? ' AND games.title_key LIKE ?' : '') +
+    (country ? ' AND EXISTS (SELECT 1 FROM prices x WHERE x.game_id = games.id AND x.country = ?)' : '');
   const params: string[] = [...platforms];
-  if (p.key) params.push(`%${p.key}%`);
+  if (q.key) params.push(`%${q.key}%`);
   if (country) params.push(country);
-  if (country) p = { ...p, regions: [country] };
-  const total = all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM games WHERE ${where}`, ...params)[0]?.n ?? 0;
-  const order = p.key
-    ? 'CASE WHEN title_key = ? THEN 0 WHEN title_key LIKE ? THEN 1 ELSE 2 END, COALESCE(rank, 1e9), title'
-    : 'COALESCE(rank, 1e9), title';
-  const orderParams = p.key ? [p.key, `${p.key}%`] : [];
-  const games = all<GameRow>(db, `SELECT * FROM games WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, ...orderParams, limit, offset);
-  const prices = pricesFor(db, games.map((g) => g.id), p.regions);
-  const nsuids = nsuidsForGames(db, games.map((g) => g.id));
+  const { regions, home } = country
+    ? { regions: [country], home: country }
+    : effectiveRegions(q.platform === 'all-switch' ? 'switch' : q.platform, q.home, q.regions);
+
+  let ids: string[];
+  let total: number;
+  if (needsPrices(q)) {
+    const key = JSON.stringify([platforms, q.key, q.sort, q.onSale, q.minDiscount, q.maxPrice, q.abroad, country, home, q.currency, [...regions].sort(), fx?.updatedAt]);
+    const minute = Math.floor(now / 60_000);
+    let hit = directoryCache.get(key);
+    if (!hit || hit.version !== version || hit.minute !== minute) {
+      hit = { version, minute, ids: rankByPrice(db, q, where, params, regions, home, fx, now) };
+      directoryCache.delete(key);
+      directoryCache.set(key, hit);
+      if (directoryCache.size > RANKED_CACHE_MAX) directoryCache.delete(directoryCache.keys().next().value!);
+    }
+    total = hit.ids.length;
+    ids = hit.ids.slice(offset, offset + limit);
+  } else {
+    total = all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM games WHERE ${where}`, ...params)[0]?.n ?? 0;
+    // A search shows exact and starts-with matches first, unless another order was asked for
+    const sort = q.sort === 'newest' || q.sort === 'title' ? q.sort : 'popular';
+    const relevance = !!q.key && sort === 'popular';
+    const order = relevance ? `CASE WHEN title_key = ? THEN 0 WHEN title_key LIKE ? THEN 1 ELSE 2 END, ${ORDER.popular}` : ORDER[sort];
+    const orderParams = relevance ? [q.key, `${q.key}%`] : [];
+    ids = all<{ id: string }>(db, `SELECT id FROM games WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, ...orderParams, limit, offset).map((r) => r.id);
+  }
+
+  const byId = new Map(getGames(db, ids).map((g) => [g.id, g]));
+  const games = ids.map((id) => byId.get(id)).filter((g): g is GameRow => !!g);
+  const prices = pricesFor(db, ids, regions);
+  const nsuids = nsuidsForGames(db, ids);
   const items = games.map((g) => ({ game: rowToGame(g, nsuids.get(g.id)), prices: (prices.get(g.id) ?? []).map((r) => rowToPrice(r, now)) }));
   return {
     items,
@@ -157,4 +209,86 @@ export function searchGames(db: Db, p: { platform: DirectoryPlatform; key: strin
     nextCursor: offset + limit < total ? String(offset + limit) : undefined,
     checkedAt: Math.max(0, ...items.flatMap((i) => i.prices.map((x) => x.checkedAt))) || undefined,
   };
+}
+
+interface PriceRowLite {
+  game_id: string;
+  country: string;
+  currency: string;
+  regular: number;
+  sale: number | null;
+  discount: number;
+  sale_ends_at: string | null;
+}
+
+type Agg = { best: number; bestDiscount: number; home?: number; onSale: boolean };
+
+/**
+ * Each game's best price (and its discount, home price, whether it's on sale
+ * anywhere) for one set of regions, home and currency. Every sort and filter
+ * reuses it, so changing a filter only re-sorts. Rebuilt when prices change,
+ * or after five minutes so ended sales drop off.
+ */
+const aggCache = new Map<string, { version: number; window: number; agg: Map<string, Agg> }>();
+const AGG_CACHE_MAX = 20;
+
+function priceAggregates(db: Db, regions: string[], home: string, currency: string, fx: FxRates | undefined, now: number): Map<string, Agg> {
+  const key = JSON.stringify([[...regions].sort(), home, currency, fx?.updatedAt]);
+  const window = Math.floor(now / 300_000);
+  const hit = aggCache.get(key);
+  if (hit && hit.version === version && hit.window === window) return hit.agg;
+  const agg = new Map<string, Agg>();
+  const rows = db
+    .prepare(`SELECT game_id, country, currency, regular, sale, discount, sale_ends_at FROM prices WHERE country IN (${placeholders(regions.length)})`)
+    .iterate(...regions) as Iterable<PriceRowLite>;
+  for (const r of rows) {
+    // A sale whose end has passed counts as the regular price, as everywhere else
+    const live = r.sale !== null && (r.sale_ends_at === null || Date.parse(r.sale_ends_at) > now);
+    const value = convert(live ? r.sale! : r.regular, r.currency, currency, fx);
+    let a = agg.get(r.game_id);
+    if (!a) agg.set(r.game_id, (a = { best: Infinity, bestDiscount: 0, onSale: false }));
+    if (live) a.onSale = true;
+    if (value === undefined) continue;
+    if (value < a.best) {
+      a.best = value;
+      a.bestDiscount = live ? r.discount : 0;
+    }
+    if (r.country === home) a.home = value;
+  }
+  aggCache.delete(key);
+  aggCache.set(key, { version, window, agg });
+  if (aggCache.size > AGG_CACHE_MAX) aggCache.delete(aggCache.keys().next().value!);
+  return agg;
+}
+
+/** The ids that pass the price filters, in the asked-for order. Same rules as deals: best = cheapest after conversion. */
+function rankByPrice(db: Db, q: DirectoryQuery, where: string, params: string[], regions: string[], home: string, fx: FxRates | undefined, now: number): string[] {
+  const meta = all<{ id: string; rank: number | null; release_date: string | null; title_key: string }>(db, `SELECT id, rank, release_date, title_key FROM games WHERE ${where}`, ...params);
+  const agg = priceAggregates(db, regions, home, q.currency, fx, now);
+  const kept = meta.filter((g) => {
+    const a = agg.get(g.id);
+    if (q.onSale && !a?.onSale) return false;
+    if (q.minDiscount && (a?.bestDiscount ?? 0) < q.minDiscount) return false;
+    if (q.maxPrice !== undefined && !(a && a.best <= q.maxPrice)) return false;
+    if (q.abroad && !(a?.home && a.best < Infinity && 1 - a.best / a.home >= q.abroad)) return false;
+    return true;
+  });
+  const rankOf = (g: (typeof meta)[number]) => g.rank ?? Number.MAX_SAFE_INTEGER;
+  const bestOf = (g: (typeof meta)[number]) => agg.get(g.id)?.best ?? Infinity;
+  const discountOf = (g: (typeof meta)[number]) => agg.get(g.id)?.bestDiscount ?? 0;
+  kept.sort((a, b) => {
+    switch (q.sort) {
+      case 'cheapest':
+        return bestOf(a) - bestOf(b) || rankOf(a) - rankOf(b);
+      case 'discount':
+        return discountOf(b) - discountOf(a) || rankOf(a) - rankOf(b);
+      case 'newest':
+        return (b.release_date ?? '').localeCompare(a.release_date ?? '') || rankOf(a) - rankOf(b);
+      case 'title':
+        return a.title_key.localeCompare(b.title_key) || rankOf(a) - rankOf(b);
+      default:
+        return rankOf(a) - rankOf(b);
+    }
+  });
+  return kept.map((g) => g.id);
 }

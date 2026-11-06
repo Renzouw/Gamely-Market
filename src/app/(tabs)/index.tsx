@@ -8,7 +8,7 @@ import { formatMoney } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { Platform } from '@shared/types';
 import { errorText } from '../../api/client';
-import { CountryChip, useCountry } from '../../components/CountryFilter';
+import { CountryChip, useCountry, useHomePriced } from '../../components/CountryFilter';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
@@ -16,7 +16,7 @@ import { directSwitchCountries } from '../../direct';
 import { useDataMode, useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
-import { ago } from '../../lib/format';
+import { ago, cheapLimit } from '../../lib/format';
 import { GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
@@ -28,11 +28,6 @@ const SORTS: { value: DealSort; label: string; detail: string }[] = [
   { value: 'newest', label: 'Newest releases', detail: 'Recently released games on sale' },
 ];
 
-/** A round "under X" number that reads naturally in each currency */
-function cheapLimit(currency: string): number {
-  const t: Record<string, number> = { JPY: 1500, KRW: 15000, CLP: 10000, COP: 40000, ARS: 10000, MXN: 200, BRL: 50, ZAR: 200, INR: 800, NOK: 100, SEK: 100, DKK: 75, CZK: 250, PLN: 40, PHP: 500, IDR: 150000, VND: 250000, THB: 350, TRY: 350, HKD: 80, SGD: 15, MYR: 40 };
-  return t[currency] ?? 10;
-}
 
 const PLATFORMS = (['switch2', 'switch', 'steam'] as Platform[]).map((p) => ({ value: p, label: platformMeta[p].label, dot: platformMeta[p].dot }));
 
@@ -62,6 +57,7 @@ export default function DealsScreen() {
   const isSteam = platform === 'steam';
   // Steam charges your account's country, so there's no picking another one
   const country = useCountry(isSteam ? undefined : countryCode);
+  const canAbroad = useHomePriced() && !country;
   const limit = cheapLimit(prefs.currency);
 
   const filters = useMemo<DealFilters>(
@@ -69,10 +65,10 @@ export default function DealsScreen() {
       minDiscount: big ? 50 : undefined,
       maxPrice: cheap ? limit : undefined,
       // Cheaper abroad compares with home, which doesn't apply to a single eShop
-      abroad: abroad && !isSteam && !country ? 0.15 : undefined,
+      abroad: abroad && !isSteam && canAbroad ? 0.15 : undefined,
       country: country?.code,
     }),
-    [big, cheap, abroad, limit, isSteam, country],
+    [big, cheap, abroad, limit, isSteam, country, canAbroad],
   );
   const q = useDeals(platform, sort, filters);
   const mode = useDataMode();
@@ -142,7 +138,7 @@ export default function DealsScreen() {
         <View style={[styles.divider, { backgroundColor: c.line }]} />
         <Chip label="50% off or more" active={big} onPress={() => setBig((v) => !v)} />
         <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
-        {!isSteam && !country ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
+        {!isSteam && canAbroad ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
       </ScrollView>
       {q.total !== undefined && q.items.length ? (
         <Text variant="caption" tone="subtle" style={styles.count}>

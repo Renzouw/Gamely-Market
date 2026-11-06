@@ -1,4 +1,4 @@
-import type { ApiActivity, ApiFx, ApiGame, ApiGameDetail, ApiList, ApiPrice, ApiSaleEvent, ApiWatch, DealQuery } from '@shared/api';
+import type { ApiActivity, ApiFx, ApiGame, ApiGameDetail, ApiList, ApiPrice, ApiSaleEvent, ApiWatch, DealQuery, DirectoryOptions } from '@shared/api';
 import { convert } from '@shared/pricing';
 import type { FxRates, Game } from '@shared/types';
 import { directDeals, directFx, directGameDetail, directGames, directPrices, type DirectContext } from '../direct';
@@ -49,16 +49,22 @@ export function getGames(
   platform: 'switch' | 'switch2' | 'steam' | 'all-switch',
   term: string,
   regions: string[],
+  opts: DirectoryOptions,
+  fx: FxRates | undefined,
   cursor?: string,
   mode?: DataMode,
   signal?: AbortSignal,
-  country?: string,
 ) {
   const ctx = directContext();
+  const { sort, onSale, minDiscount, maxPrice, abroad, country } = opts;
   return route<ApiList>(
     mode,
-    () => api<ApiList>('/v1/games', { query: { platform, q: term, home: ctx.home, regions, country, cursor }, signal }),
-    () => directGames(platform, term, ctx, cursor, country),
+    () =>
+      api<ApiList>('/v1/games', {
+        query: { platform, q: term, home: ctx.home, currency: ctx.currency, regions, country, sort, onSale: onSale ? '1' : undefined, minDiscount, maxPrice, abroad, cursor },
+        signal,
+      }),
+    () => directGames(platform, term, ctx, cursor, opts, fx),
   );
 }
 

@@ -10,7 +10,7 @@
  * games whose IDs there the phone already got from the server (watchlist,
  * recently viewed). Price history is what this phone has seen.
  */
-import type { ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiPrice, DealQuery } from '@shared/api';
+import type { ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiPrice, DealQuery, DirectoryOptions, DirectorySort } from '@shared/api';
 import { dailyBest } from '@shared/history';
 import { convert, summarize } from '@shared/pricing';
 import { HOME_CURRENCIES, STEAM_REGIONS, SWITCH_REGIONS, steamStoreCountry } from '@shared/regions';
@@ -212,7 +212,17 @@ function onlyCountry(ctx: DirectContext, country: string): DirectContext {
   return { ...ctx, home: country, switchRegions: [country] };
 }
 
-export async function directGames(platform: 'switch' | 'switch2' | 'steam' | 'all-switch', term: string, ctx: DirectContext, cursor?: string, country?: string): Promise<ApiList> {
+const EU_DIRECTORY_SORT: Record<DirectorySort, EuSort> = { popular: 'popular', cheapest: 'price', discount: 'discount', newest: 'newest', title: 'title' };
+
+export async function directGames(
+  platform: 'switch' | 'switch2' | 'steam' | 'all-switch',
+  term: string,
+  ctx: DirectContext,
+  cursor?: string,
+  opts: DirectoryOptions = {},
+  fx?: FxRates,
+): Promise<ApiList> {
+  const { country } = opts;
   const now = Date.now();
   if (platform === 'steam') {
     const store = steamStoreCountry(ctx.home);
@@ -221,12 +231,32 @@ export async function directGames(platform: 'switch' | 'switch2' | 'steam' | 'al
     return { items: games.map((g) => ({ game: toApiGame(g, g.listPrice ? [g.listPrice] : []), prices: g.listPrice ? [stamp(g.listPrice, now)] : [] })), total: games.length, checkedAt: now };
   }
   const page = Math.max(0, Math.floor(Number(cursor ?? 0)) || 0);
-  const { games, total } = await searchEu({ platform: platform === 'all-switch' ? 'all' : platform, query: term, page, pageSize: PAGE });
-  const prices = await directPrices(games, country ? onlyCountry(ctx, country) : ctx);
-  const items = games.map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }));
-  return {
+  // Europe's catalog sorts and finds sales itself; price filters then apply to each page
+  const c = country ? onlyCountry(ctx, country) : ctx;
+  const { games, total } = await searchEu({
+    platform: platform === 'all-switch' ? 'all' : platform,
+    query: term,
+    onSale: opts.onSale,
+    sort: EU_DIRECTORY_SORT[opts.sort ?? 'popular'],
+    page,
+    pageSize: PAGE,
+  });
+  const prices = await directPrices(games, c);
+  const items = games
+    .map((g) => ({ game: toApiGame(g, prices.get(g.key) ?? []), prices: prices.get(g.key) ?? [] }))
     // With a country picked, only games that eShop sells
-    items: country ? items.filter((i) => i.prices.length) : items,
+    .filter((i) => !country || i.prices.length)
+    .filter((i) => {
+      if (opts.onSale && !i.prices.some((p) => p.sale)) return false;
+      if (!opts.minDiscount && opts.maxPrice === undefined && !opts.abroad) return true;
+      const s = summarize(i.prices, { homeCurrency: ctx.currency, homeRegion: c.home, fx });
+      if (opts.minDiscount && (s.best?.discountPercent ?? 0) < opts.minDiscount) return false;
+      if (opts.maxPrice !== undefined && !(s.best?.converted !== undefined && s.best.converted <= opts.maxPrice)) return false;
+      if (opts.abroad && (s.savingVsHome ?? 0) < opts.abroad) return false;
+      return true;
+    });
+  return {
+    items,
     total,
     nextCursor: (page + 1) * PAGE < total ? String(page + 1) : undefined,
     checkedAt: now,

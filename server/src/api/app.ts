@@ -184,14 +184,21 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
         platform: z.enum(['switch2', 'switch', 'steam', 'all-switch']).default('all-switch'),
         q: z.string().max(100).default(''),
         home: country.default('US'),
+        currency: currency.default('USD'),
         country: switchCountry.optional(),
+        sort: z.enum(['popular', 'cheapest', 'discount', 'newest', 'title']).optional(),
+        onSale: z.enum(['1', 'true']).optional(),
+        minDiscount: z.coerce.number().min(0).max(100).optional(),
+        maxPrice: z.coerce.number().min(0).optional(),
+        abroad: z.coerce.number().min(0).max(1).optional(),
         cursor: z.string().optional(),
       })
       .safeParse(c.req.query());
     if (!q.success) return c.json({ error: q.error.issues[0]?.message ?? 'Bad request' }, 400);
     const { platform, home } = q.data;
     const key = titleKey(q.data.q);
-    const { regions } = effectiveRegions(platform === 'all-switch' ? 'switch' : platform, home, csv(c.req.query('regions')));
+    const asked = csv(c.req.query('regions'));
+    const { regions } = effectiveRegions(platform === 'all-switch' ? 'switch' : platform, home, asked);
 
     // Steam has far too many games to mirror, so search it live and keep what we find.
     if (platform === 'steam' && key.length >= 2 && !q.data.cursor) {
@@ -204,7 +211,8 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
         // Fall through to whatever we already have
       }
     }
-    const list = searchGames(db, { platform, key, regions, country: q.data.country, cursor: q.data.cursor });
+    const { q: _text, onSale, ...opts } = q.data;
+    const list = searchGames(db, { ...opts, key, regions: asked, onSale: !!onSale }, readFx(db));
     // Quietly top up anything on this page that hasn't been checked lately
     const stale = list.items.filter((i) => !i.prices.length || i.prices.some((p) => Date.now() - p.checkedAt > config.refreshOnViewAfterMs)).map((i) => i.game.key);
     if (stale.length) void refreshNow(stale, 0);

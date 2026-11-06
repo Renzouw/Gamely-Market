@@ -22,6 +22,16 @@ export function useCountryOptions(): Region[] {
   return SWITCH_REGIONS.filter((r) => codes.has(r.code) && (mode === 'direct' || r.group !== 'americas' || americas));
 }
 
+/**
+ * Whether we have prices for the home eShop. "Cheaper abroad" compares
+ * against it, so without them (an Americas home while the Americas are off)
+ * that filter could only ever come back empty.
+ */
+export function useHomePriced(): boolean {
+  const home = usePrefs().home;
+  return useCountryOptions().some((r) => r.code === home);
+}
+
 /** The picked country, or undefined when it isn't available any more (Settings or data mode changed). */
 export function useCountry(value: string | undefined): Region | undefined {
   const options = useCountryOptions();

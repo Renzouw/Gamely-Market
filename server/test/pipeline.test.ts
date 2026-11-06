@@ -186,4 +186,27 @@ describe('pipeline', () => {
     expect((await get('/v1/games?platform=all-switch&home=GB&regions=GB,DE')).items).toHaveLength(2);
     expect((await app.request('/v1/deals?platform=switch2&home=GB&currency=USD&country=XX')).status).toBe(400);
   });
+
+  it('sorts and filters the directory by price, using the same rules as deals', async () => {
+    const app = createApp(db);
+    await syncEuCatalog(db, { platform: 'switch2', onSaleOnly: false });
+    // Metroid: £59.99 at home, €39.99 on sale in Germany. Hades: £24.99 / €24.99, no sale.
+    prices['70010000000001:DE'] = { regular: 59.99, sale: 39.99, ends: '2099-01-01T00:00:00Z' };
+    await refreshSwitchPrices(db, ['sw:eu:70010000000001', 'sw:eu:70010000000002'], ['GB', 'DE']);
+    const titles = async (extra: string) => {
+      const res = (await (await app.request(`/v1/games?platform=all-switch&home=GB&currency=USD&regions=GB,DE${extra}`)).json()) as { items: { game: { title: string } }[]; total: number };
+      return res.items.map((i) => i.game.title);
+    };
+    expect(await titles('&sort=cheapest')).toEqual(['Hades', 'Metroid Prime 4: Beyond']);
+    expect(await titles('&sort=title')).toEqual(['Hades', 'Metroid Prime 4: Beyond']);
+    expect(await titles('&onSale=1')).toEqual(['Metroid Prime 4: Beyond']);
+    // Metroid's best price is 33% off, so nothing is half price
+    expect(await titles('&minDiscount=50')).toEqual([]);
+    // In US dollars: Hades $27.77 in Germany, Metroid $44.43
+    expect(await titles('&maxPrice=30')).toEqual(['Hades']);
+    // Metroid is 41% cheaper in Germany than at home; Hades only 11%
+    expect(await titles('&abroad=0.15')).toEqual(['Metroid Prime 4: Beyond']);
+    expect(await titles('&sort=cheapest&country=DE&maxPrice=30')).toEqual(['Hades']);
+    expect((await app.request('/v1/games?sort=random')).status).toBe(400);
+  });
 });

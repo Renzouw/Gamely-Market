@@ -1,7 +1,7 @@
 import { DEFAULT_ALERTS } from '@shared/api';
 import { summarize } from '@shared/pricing';
 import type { RegionPrice } from '@shared/types';
-import { directDeals, directPrices, directSwitchCountries } from '../direct';
+import { directDeals, directGames, directPrices, directSwitchCountries } from '../direct';
 import { localLows, useLocalHistory } from '../direct/history';
 import { planLocalAlert } from '../services/localPlan';
 import type { LocalWatch } from '../state/watchlist';
@@ -137,6 +137,27 @@ describe('phone-only data', () => {
     expect(asked).toEqual(['DE']);
     expect(page.items.map((i) => i.game.title)).toEqual(['German Sale']);
     expect(page.items[0].prices.map((p) => p.country)).toEqual(['DE']);
+  });
+
+  it('sorts and filters the directory with Europe’s own catalog search', async () => {
+    let euQuery = '';
+    globalThis.fetch = jest.fn(async (url: string) => {
+      const u = new URL(url);
+      if (u.host === 'searching.nintendo-europe.com') {
+        euQuery = decodeURIComponent(u.search);
+        return new Response(JSON.stringify({ response: { numFound: 2, docs: [
+          { title: 'Cheap One', nsuid_txt: ['1'], playable_on_txt: ['HAC'] },
+          { title: 'Dear One', nsuid_txt: ['2'], playable_on_txt: ['HAC'] },
+        ] } }));
+      }
+      const ids = u.searchParams.get('ids')!.split(',');
+      return new Response(JSON.stringify({ prices: ids.map((id) => ({ title_id: Number(id), sales_status: 'onsale', regular_price: { currency: 'GBP', raw_value: id === '1' ? '8' : '40' }, discount_price: { currency: 'GBP', raw_value: id === '1' ? '4' : '30' } })) }));
+    }) as unknown as typeof fetch;
+    // $5 at 0.8 GBP per USD; the other game is $37.50
+    const page = await directGames('switch', '', ctx, undefined, { sort: 'cheapest', onSale: true, maxPrice: 10 }, fx);
+    expect(euQuery).toContain('price_sorting_f asc');
+    expect(euQuery).toContain('price_has_discount_b:true');
+    expect(page.items.map((i) => i.game.title)).toEqual(['Cheap One']);
   });
 
   it('keeps price history compact and finds the lowest price', () => {

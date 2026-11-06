@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { ApiActivity, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiWatch, DealSort, WatchInput } from '@shared/api';
+import type { ApiActivity, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiWatch, DealSort, DirectoryOptions, WatchInput } from '@shared/api';
 import { summarize, type PriceSummary } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { Platform, RegionPrice } from '@shared/types';
@@ -88,20 +88,22 @@ export function useDeals(platform: Platform, sort: DealSort, filters: DealFilter
 
 export type DirectoryPlatform = Platform | 'all-switch';
 
-export function useDirectory(platform: DirectoryPlatform, query: string, country?: string) {
+export function useDirectory(platform: DirectoryPlatform, query: string, options: DirectoryOptions = {}) {
   const p = usePrefs();
   const mode = useDataMode();
+  const fx = useFx().data;
   const regions = platform === 'steam' ? p.steamRegions : p.switchRegions;
   const term = query.trim();
-  const only = platform === 'steam' ? undefined : country;
+  // Steam search has no sort or filters: it charges your account's country anyway
+  const opts = platform === 'steam' ? {} : options;
   const q = useInfiniteQuery({
-    queryKey: ['games', platform, term, p.home, regions, only, mode],
+    queryKey: ['games', platform, term, p.home, p.currency, regions, opts, mode],
     initialPageParam: undefined as string | undefined,
     // Keep results visible while typing, within the same platform
     placeholderData: keepSamePlatform(platform),
     staleTime: 5 * 60_000,
     enabled: !!mode && (platform !== 'steam' || term.length >= 2),
-    queryFn: ({ pageParam, signal }) => getGames(platform, term, regions, pageParam, mode, signal, only),
+    queryFn: ({ pageParam, signal }) => getGames(platform, term, regions, opts, fx, pageParam, mode, signal),
     getNextPageParam: (last) => last.nextCursor,
   });
   const items = useMemo(() => flatten(q.data), [q.data]);
