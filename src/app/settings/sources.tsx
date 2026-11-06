@@ -60,7 +60,7 @@ export default function SourcesScreen() {
           first
           label={connected ? 'Connected' : server.mode === undefined ? 'Looking for your server…' : 'Not reachable'}
           detail={connected ? `Last answered ${ago(server.lastOk)}` : server.lastOk ? `Last reached ${ago(server.lastOk)}` : 'Using phone-only mode'}
-          icon={<Ionicons name={connected ? 'checkmark-circle' : 'cloud-offline-outline'} size={20} color={connected ? c.signalText : c.subtle} />}
+          icon={<Ionicons name={connected ? 'checkmark-circle' : 'cloud-offline-outline'} size={20} color={connected ? c.text : c.subtle} />}
         />
         <View style={[styles.addressRow, { borderTopColor: c.line }]}>
           <Text variant="footnote" tone="subtle">
@@ -96,7 +96,7 @@ export default function SourcesScreen() {
                 first={i === 0}
                 label={src.label}
                 detail={src.healthy ? `Last checked ${ago(src.lastOk)}` : src.lastOk ? `Having trouble since ${ago(src.lastErrorAt)}. Showing prices from ${ago(src.lastOk)}.` : 'Not checked yet'}
-                icon={<Ionicons name={src.healthy ? 'checkmark-circle' : 'alert-circle'} size={20} color={src.healthy ? c.signalText : c.warn} />}
+                icon={<Ionicons name={src.healthy ? 'checkmark-circle' : 'alert-circle'} size={20} color={src.healthy ? c.text : c.warn} />}
               />
             ))
           ) : (
@@ -116,9 +116,9 @@ export default function SourcesScreen() {
                 ? 'Every region, live: Europe, Oceania and South Africa for all games, the Americas and Asia for the games your server matched.'
                 : 'Europe, Oceania and South Africa, live. The Americas and Asia need your server to connect once first.'
             }
-            icon={<Ionicons name="checkmark-circle" size={20} color={c.signalText} />}
+            icon={<Ionicons name="checkmark-circle" size={20} color={c.text} />}
           />
-          <Row label="Steam" detail="Your store’s deals and every region’s price, live." icon={<Ionicons name="checkmark-circle" size={20} color={c.signalText} />} />
+          <Row label="Steam" detail="Your store’s deals and every region’s price, live." icon={<Ionicons name="checkmark-circle" size={20} color={c.text} />} />
           <Row label="Needs the server" detail="Deals that run only outside Europe, games sold only in the Americas, store-wide sale alerts, and price history from before you installed the app." icon={<Ionicons name="remove-circle" size={20} color={c.subtle} />} />
         </Group>
       )}
@@ -132,7 +132,7 @@ export default function SourcesScreen() {
           first
           label="Instant push alerts"
           detail={push ?? (connected ? 'Ready' : 'When your server is reachable')}
-          icon={<Ionicons name={push ? 'alert-circle' : 'checkmark-circle'} size={20} color={push ? c.warn : c.signalText} />}
+          icon={<Ionicons name={push ? 'alert-circle' : 'checkmark-circle'} size={20} color={push ? c.warn : c.text} />}
         />
       </Group>
       <View style={{ height: space.xl }} />

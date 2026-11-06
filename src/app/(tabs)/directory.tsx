@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Keyboard, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ApiListItem, DirectoryOptions, DirectorySort } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
 import { errorText } from '../../api/client';
@@ -30,8 +31,25 @@ const SORTS: SortOption<DirectorySort>[] = [
   { value: 'title', label: 'A to Z', detail: 'By name' },
 ];
 
+/** Whether the on-screen keyboard is up (web has no such events, so it counts as up while typing there) */
+function useKeyboardOpen(): boolean {
+  const [open, setOpen] = useState(RNPlatform.OS === 'web');
+  useEffect(() => {
+    if (RNPlatform.OS === 'web') return;
+    const show = Keyboard.addListener('keyboardDidShow', () => setOpen(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setOpen(false));
+    return () => (show.remove(), hide.remove());
+  }, []);
+  return open;
+}
+
 export default function DirectoryScreen() {
   const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+  // While typing, the big title steps aside so more results fit above the keyboard
+  const [focused, setFocused] = useState(false);
+  const keyboardOpen = useKeyboardOpen();
+  const typing = focused && keyboardOpen;
   const prefs = usePrefs();
   const [platform, setPlatform] = useState<DirectoryPlatform>('all-switch');
   const [text, setText] = useState('');
@@ -81,12 +99,14 @@ export default function DirectoryScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScreenHeader title="Directory" subtitle={subtitle} />
+      {typing ? <View style={{ height: insets.top + space.md }} /> : <ScreenHeader title="Directory" subtitle={subtitle} />}
       <View style={[styles.search, { backgroundColor: c.raised }]}>
         <Ionicons name="search" size={17} color={c.subtle} />
         <TextInput
           value={text}
           onChangeText={setText}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           placeholder={isSteam ? 'Search Steam' : 'Search games'}
           placeholderTextColor={c.subtle}
           style={[styles.input, { color: c.text }]}
@@ -143,7 +163,10 @@ export default function DirectoryScreen() {
               action={{ label: 'Clear filters', onPress: clear }}
             />
           ) : (
-            <EmptyState title="No games found" body={`Nothing matches "${query.trim()}". Check the spelling or try fewer words.`} />
+            <EmptyState
+              title="No games found"
+              body={query.trim() ? `Nothing matches "${query.trim()}". Check the spelling or try fewer words.` : 'There are no games to show here right now. Pull down to try again.'}
+            />
           )
         }
         onEndReachedThreshold={0.7}

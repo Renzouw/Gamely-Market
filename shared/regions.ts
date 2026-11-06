@@ -132,3 +132,27 @@ export function guessHome(regionCode?: string | null, currencyCode?: string | nu
     : byCode.get(region)?.currency ?? 'USD';
   return { region, currency };
 }
+
+/**
+ * Nintendo's own languages for its eShop web pages. A country left out uses
+ * English; Latin America needs Spanish, or the link lands on a store list.
+ */
+const ESHOP_LANG: Record<string, string> = {
+  JP: 'ja', HK: 'zh', KR: 'ko',
+  MX: 'es', AR: 'es', CL: 'es', CO: 'es', PE: 'es', ES: 'es',
+  BR: 'pt', PT: 'pt', FR: 'fr', DE: 'de', AT: 'de', CH: 'de', IT: 'it', NL: 'nl', BE: 'nl',
+};
+
+/** Countries whose eShop has no web page per game (the link only reaches a home page). */
+const NO_TITLE_PAGE = new Set(['ZA']);
+
+/**
+ * A game's page in one country's eShop, from its ID there. Nintendo sends each
+ * link on to that country's own store page (checked by hand for every region).
+ */
+export function eshopTitleUrl(country: string, nsuids: Partial<Record<Region['group'], string>> | undefined): string | undefined {
+  const r = byCode.get(country);
+  const id = r ? nsuids?.[r.group] : undefined;
+  if (!r || !id || NO_TITLE_PAGE.has(country)) return undefined;
+  return `https://ec.nintendo.com/${country}/${ESHOP_LANG[country] ?? 'en'}/titles/${id}`;
+}

@@ -1,6 +1,6 @@
 import { convert, discountPercent, endsSoon, formatMoney, rankByPrice, summarize, timeLeft, withConversion } from '@shared/pricing';
 import { productCore, titleKey } from '@shared/match';
-import { DEFAULT_SWITCH_REGIONS, guessHome, steamStoreCountry, withNewRegions } from '@shared/regions';
+import { DEFAULT_SWITCH_REGIONS, eshopTitleUrl, guessHome, steamStoreCountry, withNewRegions } from '@shared/regions';
 import { cardsFor, cardValues, enebaCardUrl, enebaCountryUrl, ESHOP_CARDS } from '@shared/eshopCards';
 import type { FxRates, RegionPrice } from '@shared/types';
 
@@ -168,5 +168,20 @@ describe('eShop cards', () => {
       expect(range.source).toMatch(/^https:\/\//);
       for (const code of range.countries) expect(cardsFor(code)).toBe(range);
     }
+  });
+});
+
+describe('eShop links', () => {
+  const ids = { europe: '70010000096810', americas: '70010000096809', japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811' };
+  it('links each country to its own store page with the ID from its region', () => {
+    expect(eshopTitleUrl('JP', ids)).toBe('https://ec.nintendo.com/JP/ja/titles/70010000096306');
+    expect(eshopTitleUrl('GB', ids)).toBe('https://ec.nintendo.com/GB/en/titles/70010000096810');
+    expect(eshopTitleUrl('AR', ids)).toBe('https://ec.nintendo.com/AR/es/titles/70010000096809');
+    expect(eshopTitleUrl('KR', ids)).toBe('https://ec.nintendo.com/KR/ko/titles/70010000096811');
+  });
+  it('leaves out countries without a title page or without an ID there', () => {
+    expect(eshopTitleUrl('ZA', ids)).toBeUndefined();
+    expect(eshopTitleUrl('JP', { europe: '70010000096810' })).toBeUndefined();
+    expect(eshopTitleUrl('XX', ids)).toBeUndefined();
   });
 });

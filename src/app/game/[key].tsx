@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Keyboard, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import type { AlertPrefs, ApiGame } from '@shared/api';
 import { currencyDigits, formatMoney, timeLeft } from '@shared/pricing';
-import { regionLabel, switchRegion } from '@shared/regions';
+import { eshopTitleUrl, regionLabel, switchRegion } from '@shared/regions';
 import type { ConvertedRegionPrice } from '@shared/types';
 import { errorText } from '../../api/client';
 import { PriceChart } from '../../components/PriceChart';
@@ -32,6 +32,15 @@ function listNames(groups: (keyof typeof GROUP_NAMES)[], joiner: 'and' | 'or'): 
 
 /** Regions shown before "Show all": the cheapest few, plus your own eShop wherever it ranks */
 const FIRST_REGIONS = 6;
+
+const open = (url: string) => void Linking.openURL(url).catch(() => undefined);
+
+/** The game's ID in each region group, including the one its key carries (sw:eu:… or sw:us:…) */
+function regionIds(g: ApiGame): ApiGame['nsuids'] {
+  const [, src, id] = g.key.split(':');
+  const own = src === 'eu' ? { europe: id } : src === 'us' ? { americas: id } : {};
+  return { ...own, ...g.nsuids };
+}
 
 /** Android doesn't move the page for the keyboard by itself, so the page makes room for it */
 function useKeyboardHeight(): number {
@@ -104,6 +113,11 @@ export default function GameScreen() {
   const left = timeLeft(headline?.saleEndsAt);
   const atLowest = headline?.converted !== undefined && d.lowest && headline.converted <= d.lowest.price + 0.01;
   const checked = d.prices.length ? Math.min(...d.prices.map((p) => p.checkedAt)) : undefined;
+  // Each region's own eShop page; Store opens the one the headline price is from
+  const ids = isSteam ? undefined : regionIds(g as ApiGame);
+  const urlFor = (country: string) => (ids ? eshopTitleUrl(country, ids) : undefined);
+  const headlineUrl = headline ? urlFor(headline.country) : undefined;
+  const storeUrl = headlineUrl ?? g.storeUrl;
 
   const toggleWatch = () => {
     if (watch) {
@@ -227,8 +241,14 @@ export default function GameScreen() {
                 style={{ flex: 1 }}
                 accessibilityLabel={watch ? 'Stop watching' : 'Watch price'}
               />
-              {g.storeUrl ? (
-                <Button label="Store" icon="open-outline" variant="secondary" onPress={() => void Linking.openURL(g.storeUrl!).catch(() => undefined)} accessibilityLabel={`Open in ${isSteam ? 'Steam' : 'the Nintendo eShop'}`} />
+              {storeUrl ? (
+                <Button
+                  label={headlineUrl && headline ? `${regionLabel(headline.country).flag} Store` : 'Store'}
+                  icon="open-outline"
+                  variant="secondary"
+                  onPress={() => open(storeUrl)}
+                  accessibilityLabel={isSteam ? 'Open in Steam' : headlineUrl && headline ? `Open the ${regionLabel(headline.country).name} eShop` : 'Open in the Nintendo eShop'}
+                />
               ) : null}
             </View>
           </View>
@@ -251,14 +271,14 @@ export default function GameScreen() {
           <View style={[styles.pad, { marginTop: space.xxxl }]}>
             <Text variant="title">{isSteam ? 'Steam prices by region' : 'Every region'}</Text>
             <Text variant="footnote" tone="subtle" style={{ marginTop: 2, marginBottom: space.lg }}>
-              {isSteam ? "Steam charges your account’s country price, so this is for comparison only." : `Converted to ${s.currency}, cheapest first.`}
+              {isSteam ? "Steam charges your account’s country price, so this is for comparison only." : `Converted to ${s.currency}, cheapest first. Tap a region to open its eShop.`}
             </Text>
             <PriceSpread ranked={s.ranked} homeCountry={s.home?.country} currency={s.currency} />
             <View style={{ marginTop: space.lg }}>
               {s.ranked.map((p, i) =>
                 // Folded: the cheapest few and your own eShop
                 allRegions || s.ranked.length <= FIRST_REGIONS + 2 || i < FIRST_REGIONS || p.country === s.home?.country ? (
-                  <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} steam={isSteam} />
+                  <RegionRow key={p.country} p={p} best={i === 0} home={p.country === s.home?.country} currency={s.currency} first={i === 0} steam={isSteam} url={urlFor(p.country)} />
                 ) : null,
               )}
             </View>
@@ -326,16 +346,37 @@ function Fact({ tone, icon, children }: { tone: 'signal' | 'warn' | 'muted'; ico
   );
 }
 
-function RegionRow({ p, best, home, currency, first, steam }: { p: ConvertedRegionPrice; best: boolean; home: boolean; currency: string; first: boolean; steam?: boolean }) {
+function RegionRow({
+  p,
+  best,
+  home,
+  currency,
+  first,
+  steam,
+  url,
+}: {
+  p: ConvertedRegionPrice;
+  best: boolean;
+  home: boolean;
+  currency: string;
+  first: boolean;
+  steam?: boolean;
+  /** That country's eShop page for this game, when there is one */
+  url?: string;
+}) {
   const { c } = useTheme();
   const r = regionLabel(p.country);
   const note = switchRegion(p.country)?.note;
   const detail = [home ? (steam ? 'Your store' : 'Your eShop') : undefined, p.current.currency !== currency ? formatMoney(p.current.amount, p.current.currency) : undefined, note].filter(Boolean).join(' · ');
   return (
-    <View
+    <Pressable
       accessible
+      disabled={!url}
+      onPress={url ? () => (haptic(), open(url)) : undefined}
+      accessibilityRole={url ? 'link' : undefined}
+      accessibilityHint={url ? `Opens the ${r.name} eShop` : undefined}
       accessibilityLabel={`${r.name}, ${formatMoney(p.converted, currency)}${p.discountPercent ? `, ${p.discountPercent}% off` : ''}${best ? ', cheapest' : ''}${home ? (steam ? ', your store' : ', your eShop') : ''}`}
-      style={[styles.region, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}
+      style={({ pressed }) => [styles.region, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }, pressed && { opacity: 0.6 }]}
     >
       {best ? <View style={[styles.bestRule, { backgroundColor: c.signalText }]} /> : null}
       <Text style={styles.flag}>{r.flag}</Text>
@@ -359,7 +400,7 @@ function RegionRow({ p, best, home, currency, first, steam }: { p: ConvertedRegi
           </Text>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
