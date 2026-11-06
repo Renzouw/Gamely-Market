@@ -329,9 +329,10 @@ export function SwitchRow({ label, detail, value, onChange, first, disabled }: {
           value={value}
           disabled={disabled}
           onValueChange={(v) => (haptic(), onChange(v))}
-          trackColor={{ true: c.signal, false: c.line }}
-          thumbColor={RNPlatform.OS === 'ios' ? undefined : value ? c.signalInk : '#FFFFFF'}
-          {...(RNPlatform.OS === 'web' ? { activeThumbColor: c.signalInk } : {})}
+          // "On" is an inverted fill, like a selected chip: lime is kept for prices and savings
+          trackColor={{ true: c.invert, false: c.line }}
+          thumbColor={RNPlatform.OS === 'ios' ? undefined : value ? c.invertText : '#FFFFFF'}
+          {...(RNPlatform.OS === 'web' ? { activeThumbColor: c.invertText } : {})}
           ios_backgroundColor={c.line}
           accessibilityLabel={label}
         />
