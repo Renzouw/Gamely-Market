@@ -11,7 +11,17 @@ import { getGames, nsuidsForGames, pricesFor, rowToGame, rowToPrice, type GameRo
  * database for the heavy part.
  */
 let version = 0;
-export const bumpVersion = () => void version++;
+/**
+ * Prices changed: start every cache afresh. Old entries would otherwise keep
+ * a whole previous sale index alive (tens of MB each) until evicted.
+ */
+export const bumpVersion = () => {
+  version++;
+  cache.clear();
+  rankedCache.clear();
+  directoryCache.clear();
+  aggCache.clear();
+};
 
 const cache = new Map<Platform, { version: number; rows: { game: GameRow; prices: PriceRow[] }[] }>();
 

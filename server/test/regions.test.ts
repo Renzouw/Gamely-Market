@@ -205,7 +205,7 @@ describe('linking Japan, Hong Kong and Korea', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => (new URL(url).pathname === '/hk/api/search' ? new Response(JSON.stringify({ items: [], total: 10631 })) : fakeStore(url))));
     await syncRegionCatalogs(db);
     expect(all(db, "SELECT COUNT(*) AS n FROM region_catalog WHERE grp = 'hongkong'")).toEqual([{ n: 4 }]);
-    expect(all(db, "SELECT last_error FROM source_status WHERE source = 'nintendo-hongkong-catalog'")).toEqual([{ last_error: 'hongkong catalog came back short: 0 of 10631' }]);
+    expect(all(db, "SELECT last_error FROM source_status WHERE source = 'nintendo-hongkong-catalog'")).toEqual([{ last_error: 'hongkong catalog came back short: 0 of 5000 on page 1' }]);
   });
 });
 

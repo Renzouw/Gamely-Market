@@ -8,12 +8,11 @@ import { formatMoney } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { Platform } from '@shared/types';
 import { errorText } from '../../api/client';
-import { CountryChip, useCountry, useHomePriced } from '../../components/CountryFilter';
+import { CountryChip, useCountry, useCountryOptions, useHomePriced } from '../../components/CountryFilter';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
-import { directPricedCountries } from '../../direct';
-import { useLinkCount } from '../../state/links';
+import { ChipDivider, SortChip, type SortOption } from '../../components/SortChip';
+import { Button, Chip, EmptyState, PlatformTabs, RowSkeleton } from '../../components/ui';
 import { useDataMode, useDeals, usePrefs, useSaleEvents, type DealFilters } from '../../hooks/queries';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
@@ -21,14 +20,13 @@ import { ago, cheapLimit } from '../../lib/format';
 import { GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
-const SORTS: { value: DealSort; label: string; detail: string }[] = [
+const SORTS: SortOption<DealSort>[] = [
   { value: 'popular', label: 'Popular', detail: 'What people are buying' },
   { value: 'discount', label: 'Biggest discount', detail: 'Deepest cuts first' },
   { value: 'cheapest', label: 'Lowest price', detail: 'Cheapest in your currency' },
   { value: 'ending', label: 'Ending soon', detail: 'Sales about to finish' },
   { value: 'newest', label: 'Newest releases', detail: 'Recently released games on sale' },
 ];
-
 
 const PLATFORMS = (['switch2', 'switch', 'steam'] as Platform[]).map((p) => ({ value: p, label: platformMeta[p].label, dot: platformMeta[p].dot }));
 
@@ -50,7 +48,6 @@ export default function DealsScreen() {
   const alertsPrompted = useSettings((x) => x.alertsPrompted);
   const showPrompt = !alertsEnabled && !alertsPrompted && RNPlatform.OS !== 'web';
   const [sort, setSort] = useState<DealSort>('popular');
-  const [sortOpen, setSortOpen] = useState(false);
   const [big, setBig] = useState(false);
   const [cheap, setCheap] = useState(false);
   const [abroad, setAbroad] = useState(false);
@@ -59,6 +56,8 @@ export default function DealsScreen() {
   // Steam charges your account's country, so there's no picking another one
   const country = useCountry(isSteam ? undefined : countryCode);
   const canAbroad = useHomePriced() && !country;
+  // A filter only counts while its chip is showing
+  const abroadOn = abroad && !isSteam && canAbroad;
   const limit = cheapLimit(prefs.currency);
 
   const filters = useMemo<DealFilters>(
@@ -66,20 +65,16 @@ export default function DealsScreen() {
       minDiscount: big ? 50 : undefined,
       maxPrice: cheap ? limit : undefined,
       // Cheaper abroad compares with home, which doesn't apply to a single eShop
-      abroad: abroad && !isSteam && canAbroad ? 0.15 : undefined,
+      abroad: abroadOn ? 0.15 : undefined,
       country: country?.code,
     }),
-    [big, cheap, abroad, limit, isSteam, country, canAbroad],
+    [big, cheap, abroadOn, limit, country],
   );
   const q = useDeals(platform, sort, filters);
   const mode = useDataMode();
   const phoneOnly = mode === 'direct';
-  // Phone-only mode prices Europe/Oceania, plus the server's matched regions once it holds them
-  const haveMatches = useLinkCount((s) => s.count > 0);
-  const regionCount = phoneOnly
-    ? directPricedCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions }, haveMatches).length
-    : new Set([...prefs.switchRegions, prefs.home]).size;
-  const sortLabel = SORTS.find((s) => s.value === sort)!.label;
+  // The eShops actually compared right now (the same list the country picker offers)
+  const regionCount = useCountryOptions().length;
 
   const subtitle = isSteam
     ? `Steam ${steamStoreCountry(prefs.home).code} store, in ${prefs.currency}`
@@ -127,7 +122,7 @@ export default function DealsScreen() {
                 A heads-up when Steam or the eShop starts a major sale, plus the best deals on popular games. Nothing overnight.
               </Text>
             </View>
-            <Pressable onPress={() => useSettings.getState().set({ alertsPrompted: true })} hitSlop={12} accessibilityLabel="Dismiss">
+            <Pressable onPress={() => useSettings.getState().set({ alertsPrompted: true })} hitSlop={12} accessibilityRole="button" accessibilityLabel="Dismiss">
               <Ionicons name="close" size={18} color={c.subtle} />
             </Pressable>
           </View>
@@ -135,9 +130,9 @@ export default function DealsScreen() {
         </View>
       ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-        <Chip label={sortLabel} trailing="chevron-down" onPress={() => setSortOpen(true)} />
+        <SortChip value={sort} options={SORTS} onChange={setSort} title="Sort deals" />
         {!isSteam ? <CountryChip value={country?.code} onChange={setCountry} /> : null}
-        <View style={[styles.divider, { backgroundColor: c.line }]} />
+        <ChipDivider />
         <Chip label="50% off or more" active={big} onPress={() => setBig((v) => !v)} />
         <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
         {!isSteam && canAbroad ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
@@ -164,7 +159,7 @@ export default function DealsScreen() {
             <RowSkeleton />
           ) : q.isError ? (
             <EmptyState title="Couldn’t load deals" body={errorText(q.error)} action={{ label: 'Try again', onPress: () => q.refetch() }} />
-          ) : big || cheap || abroad || country ? (
+          ) : big || cheap || abroadOn || country ? (
             <EmptyState
               title="Nothing matches"
               body={country && !big && !cheap ? `Nothing is on sale in the ${country.name} eShop right now.` : 'No current sales fit those filters. Try removing one.'}
@@ -179,18 +174,12 @@ export default function DealsScreen() {
         ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xxl }} color={c.subtle} /> : <View style={{ height: space.xxl }} />}
         refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isFetchingNextPage} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}
       />
-      <Sheet visible={sortOpen} onClose={() => setSortOpen(false)} title="Sort deals">
-        {SORTS.map((s) => (
-          <SheetOption key={s.value} label={s.label} detail={s.detail} selected={sort === s.value} onPress={() => (setSort(s.value), setSortOpen(false))} />
-        ))}
-      </Sheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   filters: { gap: space.sm, paddingHorizontal: GUTTER, paddingTop: space.md, paddingBottom: space.xs, alignItems: 'center' },
-  divider: { width: StyleSheet.hairlineWidth, height: 20, marginHorizontal: space.xs },
   count: { paddingHorizontal: GUTTER, paddingTop: space.md },
   event: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginTop: space.md, paddingHorizontal: space.md, paddingVertical: space.sm + 2, borderRadius: radius.md },
   prompt: { marginHorizontal: GUTTER, marginTop: space.md, padding: space.lg, borderRadius: radius.lg },

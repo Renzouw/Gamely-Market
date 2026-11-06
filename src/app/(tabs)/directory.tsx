@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import type { ApiListItem, DirectoryOptions, DirectorySort } from '@shared/api';
 import { formatMoney } from '@shared/pricing';
@@ -8,7 +8,9 @@ import { errorText } from '../../api/client';
 import { CountryChip, useCountry, useHomePriced } from '../../components/CountryFilter';
 import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { Chip, EmptyState, PlatformTabs, RowSkeleton, Sheet, SheetOption } from '../../components/ui';
+import { ChipDivider, SortChip, type SortOption } from '../../components/SortChip';
+import { Chip, EmptyState, PlatformTabs, RowSkeleton } from '../../components/ui';
+import { useDebounced } from '../../hooks/useDebounced';
 import { useDirectory, usePrefs, type DirectoryPlatform } from '../../hooks/queries';
 import { cheapLimit } from '../../lib/format';
 import { font, GUTTER, platformMeta, radius, space, useTheme } from '../../theme';
@@ -20,22 +22,13 @@ const TABS: { value: DirectoryPlatform; label: string; dot?: string }[] = [
   { value: 'steam', label: 'Steam', dot: platformMeta.steam.dot },
 ];
 
-const SORTS: { value: DirectorySort; label: string; detail: string }[] = [
+const SORTS: SortOption<DirectorySort>[] = [
   { value: 'popular', label: 'Popular', detail: 'What people are buying' },
   { value: 'cheapest', label: 'Lowest price', detail: 'Cheapest in your currency, across your regions' },
   { value: 'discount', label: 'Biggest discount', detail: 'Deepest cuts first' },
   { value: 'newest', label: 'Newest releases', detail: 'Latest games first' },
   { value: 'title', label: 'A to Z', detail: 'By name' },
 ];
-
-function useDebounced<T>(value: T, ms = 300): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
 
 export default function DirectoryScreen() {
   const { c } = useTheme();
@@ -48,7 +41,6 @@ export default function DirectoryScreen() {
   const country = useCountry(isSteam ? undefined : countryCode);
   const canAbroad = useHomePriced() && !country;
   const [sort, setSort] = useState<DirectorySort>('popular');
-  const [sortOpen, setSortOpen] = useState(false);
   const [onSale, setOnSale] = useState(false);
   const [big, setBig] = useState(false);
   const [cheap, setCheap] = useState(false);
@@ -70,7 +62,6 @@ export default function DirectoryScreen() {
   const q = useDirectory(platform, query, options);
   const filtered = onSale || big || cheap || (abroad && canAbroad) || !!country;
   const clear = () => (setOnSale(false), setBig(false), setCheap(false), setAbroad(false), setCountry(undefined));
-  const sortLabel = SORTS.find((s) => s.value === sort)!.label;
 
   const renderItem = useCallback(
     ({ item }: { item: ApiListItem }) => <GameRow game={item.game} prices={item.prices} ticker={!isSteam} showPlatform={platform === 'all-switch'} />,
@@ -105,7 +96,7 @@ export default function DirectoryScreen() {
           accessibilityLabel="Search games"
         />
         {text ? (
-          <Pressable onPress={() => setText('')} hitSlop={12} accessibilityLabel="Clear search">
+          <Pressable onPress={() => setText('')} hitSlop={12} accessibilityRole="button" accessibilityLabel="Clear search">
             <Ionicons name="close-circle" size={17} color={c.subtle} />
           </Pressable>
         ) : null}
@@ -115,9 +106,9 @@ export default function DirectoryScreen() {
       {!isSteam ? (
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.filters}>
-            <Chip label={sortLabel} trailing="chevron-down" onPress={() => setSortOpen(true)} />
+            <SortChip value={sort} options={SORTS} onChange={setSort} title="Sort games" />
             <CountryChip value={country?.code} onChange={setCountry} />
-            <View style={[styles.divider, { backgroundColor: c.line }]} />
+            <ChipDivider />
             <Chip label="On sale" active={onSale} onPress={() => setOnSale((v) => !v)} />
             <Chip label="50% off or more" active={big} onPress={() => setBig((v) => !v)} />
             <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
@@ -126,7 +117,8 @@ export default function DirectoryScreen() {
         </View>
       ) : null}
       <FlashList
-        data={q.items}
+        // An emptied Steam search shows its prompt, not the last results kept on screen while typing
+        data={isSteam && query.trim().length < 2 ? [] : q.items}
         keyExtractor={(it) => it.game.key}
         renderItem={renderItem}
         keyboardDismissMode="on-drag"
@@ -158,11 +150,6 @@ export default function DirectoryScreen() {
         onEndReached={() => q.hasNextPage && !q.isFetchingNextPage && q.fetchNextPage()}
         ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xxl }} color={c.subtle} /> : <View style={{ height: space.xxl }} />}
       />
-      <Sheet visible={sortOpen} onClose={() => setSortOpen(false)} title="Sort games">
-        {SORTS.map((s) => (
-          <SheetOption key={s.value} label={s.label} detail={s.detail} selected={sort === s.value} onPress={() => (setSort(s.value), setSortOpen(false))} />
-        ))}
-      </Sheet>
     </View>
   );
 }
@@ -171,5 +158,4 @@ const styles = StyleSheet.create({
   search: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: GUTTER, marginBottom: space.sm, paddingHorizontal: space.md, height: 44, borderRadius: radius.md },
   input: { flex: 1, height: '100%', fontFamily: font.regular, fontSize: 16 },
   filters: { gap: space.sm, paddingHorizontal: GUTTER, paddingTop: space.xs, paddingBottom: space.sm, alignItems: 'center' },
-  divider: { width: StyleSheet.hairlineWidth, height: 20, marginHorizontal: space.xs },
 });

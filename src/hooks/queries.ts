@@ -26,7 +26,8 @@ export function useDataMode(): DataMode | undefined {
 
 export function useFx() {
   const mode = useDataMode();
-  return useQuery({ queryKey: ['fx'], queryFn: () => getFx(mode), enabled: !!mode, staleTime: 3 * 3600_000, gcTime: 48 * 3600_000 });
+  // No mode passed: the key doesn't change with it, so this one falls back by itself
+  return useQuery({ queryKey: ['fx'], queryFn: () => getFx(), enabled: !!mode, staleTime: 3 * 3600_000, gcTime: 48 * 3600_000 });
 }
 
 /** Store-wide sales happening right now (detected by the server; none in phone-only mode). */

@@ -10,12 +10,11 @@ import { syncDevice } from '../../services/push';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings, type ThemePref } from '../../state/settings';
 import { hourLabel } from '../../lib/format';
-import { space, useTheme } from '../../theme';
+import { platformMeta, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
 type Picker = 'home' | 'currency' | 'quietStart' | 'quietEnd' | 'theme' | 'eventPlatforms' | 'minDiscount' | undefined;
 
-const PLATFORM_NAMES = { switch2: 'Switch 2', switch: 'Switch', steam: 'Steam' } as const;
 
 const CURRENCY_NAMES: Record<string, string> = (() => {
   try {
@@ -73,7 +72,7 @@ export default function SettingsScreen() {
         {s.eventBigDeals ? <Row label="Minimum discount" value={`${s.eventMinDiscount}%`} onPress={() => setPicker('minDiscount')} /> : null}
         <Row
           label="Platforms"
-          value={s.eventPlatforms.length === 3 ? 'All' : s.eventPlatforms.length ? s.eventPlatforms.map((p) => PLATFORM_NAMES[p]).join(', ') : 'None'}
+          value={s.eventPlatforms.length === 3 ? 'All' : s.eventPlatforms.length ? s.eventPlatforms.map((p) => platformMeta[p].label).join(', ') : 'None'}
           onPress={() => setPicker('eventPlatforms')}
         />
       </Group>
@@ -134,7 +133,7 @@ export default function SettingsScreen() {
         {(['switch2', 'switch', 'steam'] as const).map((p) => (
           <SheetOption
             key={p}
-            label={PLATFORM_NAMES[p]}
+            label={platformMeta[p].label}
             selected={s.eventPlatforms.includes(p)}
             onPress={() => s.set({ eventPlatforms: s.eventPlatforms.includes(p) ? s.eventPlatforms.filter((x) => x !== p) : [...s.eventPlatforms, p] })}
           />

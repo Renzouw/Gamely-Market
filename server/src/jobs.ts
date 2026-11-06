@@ -1,7 +1,7 @@
 import { config } from './config';
 import { all, get, run, type Db } from './db';
 import { queueEndingAlerts, refreshAndAlert } from './alerts/run';
-import { discoverSteamDeals, syncEuCatalog, syncUsCatalog, syncUsFullCatalog } from './ingest/catalog';
+import { discoverSteamDeals, syncEuCatalog, syncUsDeals, syncUsFullCatalog } from './ingest/catalog';
 import { invalidateFx, syncFx } from './ingest/fx';
 import { linkRegions, syncRegionCatalogs } from './ingest/regions';
 import { isOverdue, markRun } from './store';
@@ -50,7 +50,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     const found = new Set<string>();
     for (const platform of ['switch2', 'switch'] as const) {
       (await syncEuCatalog(db, { platform, onSaleOnly: true, maxPages: 60 })).forEach((id) => found.add(id));
-      (await syncUsCatalog(db, { platform, onSaleOnly: true, maxPages: 60 })).forEach((id) => found.add(id));
+      (await syncUsDeals(db, platform)).forEach((id) => found.add(id));
     }
     (await discoverSteamDeals(db)).forEach((id) => found.add(id));
     // Only re-price what we haven't already got a sale price for
@@ -65,38 +65,52 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     await refresh(all<{ id: string }>(db, 'SELECT id FROM games WHERE on_sale = 1').map((r) => r.id));
   }
 
+  /** A source that failed since t0 and hasn't succeeded since. Sync functions catch their own errors, so this is how a job learns of them. */
+  const failedSince = (source: string, t0: number) => {
+    const r = get<{ last_ok: number | null; last_error_at: number | null }>(db, 'SELECT last_ok, last_error_at FROM source_status WHERE source = ?', source);
+    return !!r && (r.last_error_at ?? 0) >= t0 && (r.last_ok ?? 0) < t0;
+  };
+
   /** Full catalogs, then Japan, Hong Kong and Korea, then price whatever got newly linked. */
-  async function catalog() {
+  async function catalog(): Promise<boolean> {
+    const t0 = Date.now();
     for (const platform of ['switch2', 'switch'] as const) await syncEuCatalog(db, { platform, onSaleOnly: false });
     await syncUsFullCatalog(db);
-    // Games linked to the Americas that have no Americas price yet: price them now, not at the next daily sweep
+    // Games linked to the Americas that have never had an Americas price: price them now, not at
+    // the next daily sweep. Any price history there means they were priced (or are not sold there).
     const usUnpriced = all<{ id: string }>(
       db,
       `SELECT DISTINCT i.game_id AS id FROM game_ids i WHERE i.grp = 'americas'
-         AND NOT EXISTS (SELECT 1 FROM prices p WHERE p.game_id = i.game_id AND p.country IN ('US', 'CA', 'MX', 'BR', 'AR', 'CL', 'CO', 'PE'))`,
+         AND NOT EXISTS (SELECT 1 FROM price_history h WHERE h.game_id = i.game_id AND h.country IN ('US', 'CA', 'MX', 'BR', 'AR', 'CL', 'CO', 'PE'))`,
     ).map((r) => r.id);
     await syncRegionCatalogs(db);
     const linked = await linkRegions(db);
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong or Korea`);
     await refresh([...new Set([...usUnpriced, ...linked])]);
+    return !failedSince('nintendo-eu-catalog', t0);
   }
 
   /** Every game in every region, once a day. Catches sales the catalogs haven't flagged yet. */
-  async function sweep() {
+  async function sweep(): Promise<boolean> {
+    const t0 = Date.now();
     await refresh(all<{ id: string }>(db, 'SELECT id FROM games ORDER BY on_sale DESC, COALESCE(rank, 1e9)').map((r) => r.id), 200);
+    return !failedSince('nintendo-prices', t0);
   }
 
   const isEmpty = () => !get<{ n: number }>(db, 'SELECT 1 AS n FROM games LIMIT 1');
   /**
    * Daily jobs remember when they last finished. The PC restarts more often
    * than once a day, and a timer alone would start counting from zero each
-   * time, so these would never run.
+   * time, so these would never run. A run the stores made fail isn't counted,
+   * so it's tried again at the next start.
    */
-  const remembered = (name: string, every: number, fn: () => Promise<void>) => ({
+  const remembered = (name: string, every: number, fn: () => Promise<boolean | void>) => ({
     name,
     every,
     atStart: isEmpty() || isOverdue(db, name, every),
-    run: async () => (await fn(), markRun(db, name)),
+    run: async () => {
+      if ((await fn()) !== false) markRun(db, name);
+    },
   });
 
   return [
@@ -110,7 +124,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     { name: 'big-deals', every: config.schedule.bigDeals, atStart: false, run: async () => void queueBigDeals(db) },
     { name: 'ending', every: config.schedule.endingSoon, atStart: false, run: async () => void queueEndingAlerts(db) },
     { name: 'dispatch', every: config.schedule.dispatch, atStart: false, run: async () => void (await dispatch(db)) },
-    { name: 'prune', every: 24 * 3600_000, atStart: false, run: async () => void prune(db) },
+    remembered('prune', 24 * 3600_000, async () => prune(db)),
     { name: 'receipts', every: config.schedule.receipts, atStart: false, run: () => checkReceipts(db) },
   ];
 }

@@ -112,15 +112,20 @@ function AppEffects() {
     return () => clearTimeout(t);
   }, [qc, mode, ...synced]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Target prices follow a currency change
-  const currency = useSettings((x) => x.homeCurrency);
-  const [lastCurrency, setLastCurrency] = useState(currency);
-  if (currency !== lastCurrency) {
-    setLastCurrency(currency);
-    const fx = qc.getQueryData<FxRates>(['fx']);
-    const rate = fx ? convert(1, lastCurrency, currency, fx) : undefined;
-    if (rate) useWatchlist.getState().convertTargets(rate);
-  }
+  // Target prices follow a currency change made in Settings. Loading the saved
+  // settings at launch also changes the currency (from the default), which
+  // must not convert anything, so only count changes once both stores are loaded.
+  useEffect(
+    () =>
+      useSettings.subscribe((s, prev) => {
+        if (s.homeCurrency === prev.homeCurrency) return;
+        if (!useSettings.persist.hasHydrated() || !useWatchlist.persist.hasHydrated()) return;
+        const fx = qc.getQueryData<FxRates>(['fx']);
+        const rate = fx ? convert(1, prev.homeCurrency, s.homeCurrency, fx) : undefined;
+        if (rate) useWatchlist.getState().convertTargets(rate);
+      }),
+    [qc],
+  );
 
   useEffect(() => {
     void setBackgroundChecks(alertsEnabled);

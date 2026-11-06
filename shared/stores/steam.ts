@@ -111,8 +111,6 @@ export function parseStoreSearch(data: StoreSearchResponse, country: string): Ga
     });
 }
 
-
-
 /* ------------------------------------------------------------------ */
 /* Regional prices via appdetails (price_overview filter allows batch) */
 /* ------------------------------------------------------------------ */
@@ -147,17 +145,6 @@ export function parsePriceOverview(country: string, data: AppDetailsPriceRespons
 /* Details for the game screen                                         */
 /* ------------------------------------------------------------------ */
 
-export interface SteamDetails {
-  title: string;
-  description?: string;
-  publisher?: string;
-  releaseDate?: string;
-  image?: string;
-  isFree?: boolean;
-  metacritic?: number;
-  platforms?: string[];
-}
-
 export interface AppDetailsFull {
   [id: string]: {
     success: boolean;
@@ -173,8 +160,6 @@ export interface AppDetailsFull {
     };
   };
 }
-
-
 
 /* ------------------------------------------------------------------ */
 /* Batch prices with sale end dates: IStoreBrowseService/GetItems      */
@@ -245,8 +230,6 @@ export function parseStoreItems(country: string, currency: string, data: GetItem
   }
   return out;
 }
-
-
 
 /** Query for the store's specials search (returns HTML rows). */
 export function steamSearchQuery(p: { country: string; sort?: SteamSort; page?: number; pageSize?: number; query?: string }) {

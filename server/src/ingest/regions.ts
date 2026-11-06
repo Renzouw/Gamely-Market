@@ -20,7 +20,7 @@ import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } 
  * Anything doubtful is left out, and the game page says so.
  */
 
-export const REGION_GROUPS = ['japan', 'hongkong', 'korea'] as const;
+const REGION_GROUPS = ['japan', 'hongkong', 'korea'] as const;
 type RegionGroup = (typeof REGION_GROUPS)[number];
 
 const DAY = 86400_000;
@@ -63,6 +63,21 @@ function saveEntries(db: Db, grp: RegionGroup, entries: RegionEntry[], now: numb
 }
 
 /**
+ * After reading a whole catalog: forget listings it no longer has, so a
+ * stale one can't block a match (by making a code look shared) or be matched.
+ * Listings already linked to a game stay; the price check handles delisting.
+ */
+function dropMissing(db: Db, grp: RegionGroup, now: number) {
+  run(
+    db,
+    `DELETE FROM region_catalog WHERE grp = ? AND seen_at < ?
+       AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = region_catalog.grp AND i.nsuid = region_catalog.nsuid)`,
+    grp,
+    now,
+  );
+}
+
+/**
  * Refresh the three catalogs. Hong Kong and Korea come whole in a few
  * requests. Japan is 50-odd heavy pages, so each run reads the newest few
  * and the whole list once a week.
@@ -72,6 +87,7 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
     try {
       const entries = await fetchAsiaCatalog(grp);
       saveEntries(db, grp, entries, now);
+      dropMissing(db, grp, now);
       sourceOk(db, `nintendo-${grp}-catalog`, entries.length);
     } catch (e) {
       sourceError(db, `nintendo-${grp}-catalog`, e);
@@ -88,7 +104,10 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
       seen += res.entries.length;
       if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
     }
-    if (full) markRun(db, 'jp-full-catalog', now);
+    if (full) {
+      dropMissing(db, 'japan', now);
+      markRun(db, 'jp-full-catalog', now);
+    }
     sourceOk(db, 'nintendo-jp-catalog', seen);
   } catch (e) {
     sourceError(db, 'nintendo-jp-catalog', e);
@@ -131,7 +150,7 @@ async function fillAppIds(db: Db, rows: CatalogRow[], budget: Budget, now: numbe
     if (budget.pages <= 0 || budget.errors >= 5) return false;
     budget.pages--;
     try {
-      r.app_id = (await fetchHkAppId(r.nsuid)) ?? null;
+      r.app_id = await fetchHkAppId(r.nsuid);
       r.app_checked_at = now;
       budget.fetched++;
       run(db, 'UPDATE region_catalog SET app_id = ?, app_checked_at = ? WHERE grp = ? AND nsuid = ?', r.app_id, now, r.grp, r.nsuid);
@@ -230,10 +249,20 @@ export async function linkRegions(db: Db, now = Date.now()): Promise<string[]> {
   const budget: Budget = { pages: config.regions.titlePagesPerRun, errors: 0, fetched: 0 };
   const linked = new Set<string>();
 
+  // "Checked" marks are written 100 at a time in one transaction, not one commit per game
+  const checked: string[] = [];
+  const flush = () => {
+    const ids = checked.splice(0);
+    if (ids.length) tx(db, () => ids.forEach((id) => run(db, 'UPDATE games SET region_checked_at = ? WHERE id = ?', now, id)));
+  };
+
   let n = 0;
   for (const g of games) {
     // The database calls are synchronous; let API requests through now and then
-    if (++n % 100 === 0) await new Promise((r) => setImmediate(r));
+    if (++n % 100 === 0) {
+      flush();
+      await new Promise((r) => setImmediate(r));
+    }
     const have = linkedGroups(db, g.id);
     let key = keyOf(g);
     let final = true;
@@ -275,8 +304,9 @@ export async function linkRegions(db: Db, now = Date.now()): Promise<string[]> {
       }
     }
     // Check again next week, unless we ran out of page lookups or a catalog is missing
-    if (final && ready.length === REGION_GROUPS.length) run(db, 'UPDATE games SET region_checked_at = ? WHERE id = ?', now, g.id);
+    if (final && ready.length === REGION_GROUPS.length) checked.push(g.id);
   }
+  flush();
   if (budget.fetched && budget.errors < 5) sourceOk(db, 'nintendo-hk-titles', budget.fetched);
   return [...linked];
 }

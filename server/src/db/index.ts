@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
 import { SCHEMA } from './schema';
 
 export type Db = DatabaseSync;
@@ -66,16 +66,33 @@ export function tx<T>(db: Db, fn: () => T): T {
   }
 }
 
+/**
+ * Prepared statements, reused: a price sweep runs the same few statements
+ * hundreds of thousands of times, and preparing one each time is real work on
+ * the event loop. Bounded, because IN (?, ?, ...) lists make many variants.
+ */
+const statements = new WeakMap<Db, Map<string, StatementSync>>();
+function prepared(db: Db, sql: string): StatementSync {
+  let cache = statements.get(db);
+  if (!cache) statements.set(db, (cache = new Map()));
+  let s = cache.get(sql);
+  if (!s) {
+    if (cache.size >= 500) cache.clear();
+    cache.set(sql, (s = db.prepare(sql)));
+  }
+  return s;
+}
+
 export function all<T>(db: Db, sql: string, ...params: SQLInputValue[]): T[] {
-  return db.prepare(sql).all(...params) as T[];
+  return prepared(db, sql).all(...params) as T[];
 }
 
 export function get<T>(db: Db, sql: string, ...params: SQLInputValue[]): T | undefined {
-  return db.prepare(sql).get(...params) as T | undefined;
+  return prepared(db, sql).get(...params) as T | undefined;
 }
 
 export function run(db: Db, sql: string, ...params: SQLInputValue[]) {
-  return db.prepare(sql).run(...params);
+  return prepared(db, sql).run(...params);
 }
 
 /** "?, ?, ?" for an IN (...) list */

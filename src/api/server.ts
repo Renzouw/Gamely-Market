@@ -24,12 +24,14 @@ interface ServerState {
 
 export const useServer = create<ServerState>(() => ({ mode: undefined }));
 
-let checking: Promise<DataMode> | undefined;
+let checking: { url: string; result: Promise<DataMode> } | undefined;
 
 /** Ask the server if it's there. Quick: gives up after a few seconds. */
 export function checkServer(): Promise<DataMode> {
-  checking ??= (async (): Promise<DataMode> => {
-    const url = serverUrl();
+  const url = serverUrl();
+  // Share a check already on its way, unless the address has changed since
+  if (checking?.url === url) return checking.result;
+  const result = (async (): Promise<DataMode> => {
     let ok = false;
     if (url) {
       const ctrl = new AbortController();
@@ -44,10 +46,16 @@ export function checkServer(): Promise<DataMode> {
       }
     }
     const now = Date.now();
+    if (serverUrl() !== url) return useServer.getState().mode ?? 'direct'; // a newer check owns the answer
     useServer.setState({ mode: ok ? 'server' : 'direct', lastCheck: now, ...(ok ? { lastOk: now } : {}) });
     return ok ? 'server' : 'direct';
-  })().finally(() => (checking = undefined));
-  return checking;
+  })();
+  const entry = { url, result };
+  checking = entry;
+  void result.finally(() => {
+    if (checking === entry) checking = undefined;
+  });
+  return result;
 }
 
 /** The current mode, checking first if we don't know yet. */
@@ -70,6 +78,6 @@ export function reportServerOk() {
  * quiet so you never get the same alert twice.
  */
 export function serverHandlesPush(pushAvailable: boolean): boolean {
-  const { lastOk } = useServer.getState();
-  return pushAvailable && !!lastOk && Date.now() - lastOk < 30 * 60_000;
+  const { mode, lastOk } = useServer.getState();
+  return pushAvailable && mode === 'server' && !!lastOk && Date.now() - lastOk < 30 * 60_000;
 }

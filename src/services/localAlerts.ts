@@ -21,13 +21,11 @@ let fxCache: { at: number; fx: FxRates } | undefined;
  * stays quiet, so you never get the same alert twice.
  */
 export async function runLocalCheck(): Promise<{ checked: number; alerted: number }> {
-  // In a background launch the saved stores may not be loaded yet
-  await Promise.all([
-    useSettings.persist.rehydrate(),
-    useWatchlist.persist.rehydrate(),
-    useLocalHistory.persist.rehydrate(),
-    useLocalActivity.persist.rehydrate(),
-  ]);
+  // In a background launch the saved stores may not be loaded yet. Reloading one
+  // that is would throw away changes still on their way to disk.
+  await Promise.all(
+    [useSettings, useWatchlist, useLocalHistory, useLocalActivity].map((s) => (s.persist.hasHydrated() ? undefined : s.persist.rehydrate())),
+  );
   const watches = Object.values(useWatchlist.getState().items);
   if (!watches.length) return { checked: 0, alerted: 0 };
 
@@ -62,9 +60,11 @@ export async function runLocalCheck(): Promise<{ checked: number; alerted: numbe
   let alerted = 0;
   for (const w of watches) {
     const p = prices[w.game.key]?.prices;
-    if (!p) continue;
+    if (!p?.length) continue;
     const home = w.game.platform === 'steam' ? steamStoreCountry(s.homeRegion).code : s.homeRegion;
     const sum = summarize(w.game.platform === 'steam' ? p.filter((x) => x.country === home) : p, { homeCurrency: s.homeCurrency, homeRegion: home, fx });
+    // No price we can read in your currency (a store didn't answer, no exchange rate yet): keep the last good numbers
+    if (sum.best?.converted === undefined) continue;
     const alert = quiet ? undefined : planLocalAlert(w, sum, s.homeCurrency, lowsBefore.get(w.game.key));
     const sent = alert ? [...w.sent, alert.key] : w.sent;
     if (alert) {

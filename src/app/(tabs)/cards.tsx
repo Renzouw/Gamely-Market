@@ -2,21 +2,12 @@ import * as Linking from 'expo-linking';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { CARD_COUNTRIES, cardsFor, cardValues, enebaCardUrl, enebaCountryUrl } from '@shared/eshopCards';
-import { convert, formatMoney } from '@shared/pricing';
+import { convert, formatMoney, formatWhole } from '@shared/pricing';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button, Chip, EmptyState, Group, Sheet, SheetOption } from '../../components/ui';
 import { useFx, usePrefs } from '../../hooks/queries';
 import { GUTTER, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
-
-/** Card values are whole amounts: "$50", not "$50.00". */
-function cardLabel(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(amount);
-  } catch {
-    return formatMoney(amount, currency);
-  }
-}
 
 /**
  * Official eShop card values for one country, in the user's currency, with a
@@ -59,7 +50,7 @@ export default function CardsScreen() {
           icon="open-outline"
           variant="secondary"
           style={styles.all}
-          onPress={() => Linking.openURL(allOnEneba)}
+          onPress={() => void Linking.openURL(allOnEneba).catch(() => undefined)}
           accessibilityLabel={`See every ${country.name} eShop card on Eneba, cheapest first`}
         />
       ) : (
@@ -81,7 +72,7 @@ export default function CardsScreen() {
           return (
             <View key={v.amount} style={[styles.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}>
               <View style={{ flex: 1, gap: 2 }}>
-                <Text variant="priceM">{cardLabel(v.amount, range.currency)}</Text>
+                <Text variant="priceM">{formatWhole(v.amount, range.currency)}</Text>
                 <Text variant="footnote" tone="subtle">
                   {mine !== undefined && range.currency !== prefs.currency ? `About ${formatMoney(mine, prefs.currency)}` : range.currency === prefs.currency ? 'Your currency' : 'No exchange rate yet'}
                   {v.digitalOnly ? ' · digital code only' : ''}
@@ -93,8 +84,8 @@ export default function CardsScreen() {
                   icon="open-outline"
                   variant="secondary"
                   style={styles.eneba}
-                  onPress={() => Linking.openURL(onEneba)}
-                  accessibilityLabel={`See ${cardLabel(v.amount, range.currency)} cards on Eneba`}
+                  onPress={() => void Linking.openURL(onEneba).catch(() => undefined)}
+                  accessibilityLabel={`See ${formatWhole(v.amount, range.currency)} cards on Eneba`}
                 />
               ) : null}
             </View>

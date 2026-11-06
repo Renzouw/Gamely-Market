@@ -4,17 +4,25 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import type { ApiActivity, ApiWatch } from '@shared/api';
-import { formatMoney } from '@shared/pricing';
-import { regionLabel } from '@shared/regions';
+import { formatMoney, summarize } from '@shared/pricing';
+import { regionLabel, steamStoreCountry } from '@shared/regions';
+import type { FxRates } from '@shared/types';
 import { errorText } from '../../api/client';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Cover, EmptyState, PlatformTabs, RowSkeleton, Tap } from '../../components/ui';
-import { useActivity, usePriceSummary, useWatches } from '../../hooks/queries';
+import { useActivity, useFx, usePrefs, usePriceSummary, useWatches } from '../../hooks/queries';
 import { ago } from '../../lib/format';
 import { GUTTER, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
 type Tab = 'watching' | 'alerts';
+
+/** The price a watch is judged on: the cheapest region (Switch), or your own store (Steam, which charges your account's country). */
+function buyingPrice(w: ApiWatch, home: string, currency: string, fx: FxRates | undefined) {
+  const steam = w.game.platform === 'steam';
+  const s = summarize(w.prices, { homeCurrency: currency, homeRegion: steam ? steamStoreCountry(home).code : home, fx });
+  return steam ? (s.home ?? s.best) : s.best;
+}
 
 const WatchRow = memo(function WatchRow({ w }: { w: ApiWatch }) {
   const s = usePriceSummary(w.game.platform, w.prices);
@@ -82,6 +90,7 @@ const AlertRow = memo(function AlertRow({ a }: { a: ApiActivity }) {
       disabled={!a.gameId}
       onPress={() => a.gameId && router.push({ pathname: '/game/[key]', params: { key: a.gameId } })}
       accessibilityRole="button"
+      accessibilityState={{ disabled: !a.gameId }}
       accessibilityLabel={`${a.title}. ${a.body}. ${ago(a.createdAt)}`}
       scaleTo={0.985}
       style={styles.alert}
@@ -117,11 +126,14 @@ export default function WatchlistScreen() {
   }
   const watches = useWatches();
   const activity = useActivity();
+  const prefs = usePrefs();
+  const fx = useFx().data;
 
-  const sorted = useMemo(() => [...(watches.data ?? [])], [watches.data]);
+  const sorted = useMemo(() => watches.data ?? [], [watches.data]);
   const renderWatch = useCallback(({ item }: { item: ApiWatch }) => <WatchRow w={item} />, []);
   const renderAlert = useCallback(({ item }: { item: ApiActivity }) => <AlertRow a={item} />, []);
-  const onSale = sorted.filter((w) => w.prices.some((p) => p.sale)).length;
+  // Counted the same way each row decides it says "on sale"
+  const onSale = useMemo(() => sorted.filter((w) => buyingPrice(w, prefs.home, prefs.currency, fx)?.sale).length, [sorted, prefs.home, prefs.currency, fx]);
 
   const header = (
     <View>

@@ -29,7 +29,6 @@ export const config = {
     expoPush: env.UPSTREAM_EXPO_PUSH ?? 'https://exp.host/--/api/v2/push',
   },
 
-  /** Optional Americas catalog. See README. */
   /**
    * Americas catalog. On by default, using the search key Nintendo's US
    * store page uses (see catalogUs.ts). NA_SEARCH_APP_ID/API_KEY override it;

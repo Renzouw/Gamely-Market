@@ -41,7 +41,7 @@ interface DeviceRow {
 function devicesWithPush(db: Db): { row: DeviceRow; ctx: DeviceCtx; prefs: EventPrefs }[] {
   return all<DeviceRow>(db, 'SELECT * FROM devices WHERE alerts_enabled = 1').map((row) => ({
     row,
-    ctx: { id: row.id, currency: row.currency, homeRegion: row.home_region, switchRegions: JSON.parse(row.switch_regions), steamRegions: JSON.parse(row.steam_regions) },
+    ctx: { id: row.id, currency: row.currency, homeRegion: row.home_region, switchRegions: JSON.parse(row.switch_regions) },
     prefs: { ...DEFAULT_EVENT_ALERTS, ...(JSON.parse(row.event_alerts || '{}') as Partial<EventPrefs>) },
   }));
 }
@@ -114,7 +114,7 @@ function notifyEvents(db: Db, started: { id: number; platform: Platform; count: 
   tx(db, () => {
     for (const { row, ctx, prefs } of devicesWithPush(db)) {
       if (!prefs.storeSales) continue;
-      const mine = started.filter((e) => prefs.platforms.includes(e.platform as never));
+      const mine = started.filter((e) => (prefs.platforms as readonly Platform[]).includes(e.platform));
       if (!mine.length) continue;
       const picks = pickBigDeals({ device: ctx, prefs: { ...prefs, platforms: mine.map((e) => e.platform) as EventPrefs['platforms'] }, candidates, watched: new Set(), seen: new Set(), fx, now });
       const msg = composeEvent(mine, picks);

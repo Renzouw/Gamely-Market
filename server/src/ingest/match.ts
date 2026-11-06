@@ -50,7 +50,9 @@ export function pickMatch(incoming: MatchInput, candidates: GameRow[]): { game: 
       if (inCore === cCore) scored.push({ game: c, method: 'product_code' });
       continue; // codes disagree: different products
     }
-    if (publishersMatch(incoming.publisher, c.publisher)) scored.push({ game: c, method: 'title_publisher' });
+    // Same title and publisher, but released years apart: likely a different edition or a remake
+    const yearsApart = !datesClose(incoming.releaseDate, c.release_date, 365) && !!incoming.releaseDate && !!c.release_date;
+    if (publishersMatch(incoming.publisher, c.publisher) && !yearsApart) scored.push({ game: c, method: 'title_publisher' });
     else if (datesClose(incoming.releaseDate, c.release_date)) scored.push({ game: c, method: 'title_date' });
   }
 

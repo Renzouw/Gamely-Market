@@ -1,18 +1,15 @@
 import { config } from '../config';
 import { chunk, getJson, qs } from './http';
 import {
-  decodeEntities,
   getItemsInput,
   parsePriceOverview,
   parseSearchHtml,
   parseStoreItems,
   parseStoreSearch,
   steamSearchQuery,
-  type AppDetailsFull,
   type AppDetailsPriceResponse,
   type GetItemsResponse,
   type SearchResultsResponse,
-  type SteamDetails,
   type SteamItemInfo,
   type SteamSort,
   type StoreSearchResponse,
@@ -20,8 +17,7 @@ import {
 import type { Game, RegionPrice } from '@shared/types';
 
 // Parsing lives in shared/ so the app's phone-only mode reads Steam the same way.
-export { parsePriceOverview, parseSearchHtml, parseStoreItems, parseStoreSearch, steamImage } from '@shared/stores/steam';
-export type { SteamDetails, SteamItemInfo, SteamSort } from '@shared/stores/steam';
+export { parsePriceOverview, parseSearchHtml, parseStoreItems, parseStoreSearch } from '@shared/stores/steam';
 
 const STORE = config.upstream.steamStore;
 
@@ -53,22 +49,6 @@ export async function fetchSteamPrices(appIds: number[], country: string): Promi
     parsePriceOverview(country, d).forEach((v, k) => merged.set(k, v));
   }
   return merged;
-}
-
-export async function fetchSteamDetails(appId: number, country: string): Promise<SteamDetails | undefined> {
-  const data = await getJson<AppDetailsFull>(`${STORE}/api/appdetails?${qs({ appids: appId, cc: country, l: 'english' })}`);
-  const d = data[String(appId)]?.data;
-  if (!d) return undefined;
-  return {
-    title: d.name,
-    description: d.short_description ? decodeEntities(d.short_description.replace(/<[^>]+>/g, '')) : undefined,
-    publisher: d.publishers?.[0],
-    releaseDate: d.release_date?.date,
-    image: d.header_image,
-    isFree: d.is_free,
-    metacritic: d.metacritic?.score,
-    platforms: d.platforms ? Object.entries(d.platforms).filter(([, v]) => v).map(([k]) => k) : undefined,
-  };
 }
 
 export async function fetchSteamItems(appIds: number[], country: string, currency: string): Promise<Map<number, SteamItemInfo>> {

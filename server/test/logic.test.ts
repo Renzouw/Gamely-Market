@@ -64,7 +64,7 @@ describe('cross-region matching', () => {
 });
 
 const fx: FxRates = { base: 'USD', rates: { USD: 1, MXN: 20, GBP: 0.8, EUR: 0.9, ZAR: 18 }, updatedAt: 0 };
-const device: DeviceCtx = { id: 'd1', currency: 'USD', homeRegion: 'GB', switchRegions: ['GB', 'DE', 'ZA'], steamRegions: ['US'] };
+const device: DeviceCtx = { id: 'd1', currency: 'USD', homeRegion: 'GB', switchRegions: ['GB', 'DE', 'ZA'] };
 const watch = (over: Partial<WatchCtx> = {}): WatchCtx => ({ gameId: 'g', title: 'Zelda', platform: 'switch', alerts: { ...DEFAULT_ALERTS }, ...over });
 const p = (country: string, currency: string, regular: number, sale: number | null = null, ends: string | null = null): PriceRow => ({
   game_id: 'g',
@@ -114,6 +114,14 @@ describe('alert planning', () => {
     expect(planAlerts({ device, watch: watch({ alerts: { ...DEFAULT_ALERTS, low: false } }), before: onSale, after: deeper, newLowCountries: [], fx })).toBeUndefined();
     const a = planAlerts({ device, watch: watch({ alerts: { ...DEFAULT_ALERTS, low: false, drop: true } }), before: onSale, after: deeper, newLowCountries: [], fx });
     expect(a?.kind).toBe('drop');
+  });
+
+  it("doesn't call a newly compared country a price drop", () => {
+    // DE wasn't priced before (just switched on, or newly matched); it's cheaper, but nothing dropped
+    const gbOnly = [p('GB', 'GBP', 40), p('ZA', 'ZAR', 720)];
+    const withDe = [p('GB', 'GBP', 40), p('DE', 'EUR', 27), p('ZA', 'ZAR', 720)];
+    const drop = { ...DEFAULT_ALERTS, low: false, drop: true };
+    expect(planAlerts({ device, watch: watch({ alerts: drop }), before: gbOnly, after: withDe, newLowCountries: [], fx })).toBeUndefined();
   });
 
   it('tells you when your own eShop starts a sale, even if another region is cheaper', () => {
@@ -210,5 +218,13 @@ describe('push batching', () => {
     expect(msgs[0].message.title).toBe('4 price alerts from your watchlist');
     expect(msgs[0].message.body).toBe('Game 1, Game 2, Game 3 and 1 more.');
     expect(msgs[0].ids).toEqual([1, 2, 3, 4]);
+  });
+  it('names home-eShop sales in the summary, and keeps store-wide news out of it', () => {
+    const home = { ...n(1, 'a'), title: 'Zelda is on sale in your eShop' };
+    const event = { ...n(9, 'a'), kind: 'event', game_id: null, title: 'Big eShop sale on now' };
+    const msgs = buildMessages([home, n(2, 'a'), n(3, 'a'), n(4, 'a'), event]);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].message.body).toBe('Zelda, Game 2, Game 3 and 1 more.');
+    expect(msgs[1].message.title).toBe('Big eShop sale on now');
   });
 });

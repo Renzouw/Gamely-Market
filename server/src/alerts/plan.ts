@@ -9,7 +9,6 @@ export interface DeviceCtx {
   currency: string;
   homeRegion: string;
   switchRegions: string[];
-  steamRegions: string[];
 }
 
 export interface WatchCtx {
@@ -136,7 +135,9 @@ export function planAlertCandidates(input: {
       expiresAt: home.saleEndsAt ? Date.parse(home.saleEndsAt) : undefined,
     });
   }
-  if (w.alerts.drop && b?.converted !== undefined && a.converted < b.converted * 0.99) {
+  // A country priced for the first time didn't drop: it just wasn't being compared before
+  const pricedBefore = input.before.some((r) => r.country === a.country);
+  if (w.alerts.drop && pricedBefore && b?.converted !== undefined && a.converted < b.converted * 0.99) {
     out.push({
       kind: 'drop',
       title: `${w.title} dropped to ${price}`,

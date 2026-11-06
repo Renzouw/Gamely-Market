@@ -5,7 +5,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import type { AlertPrefs, ApiGame } from '@shared/api';
-import { formatMoney, timeLeft } from '@shared/pricing';
+import { currencyDigits, formatMoney, timeLeft } from '@shared/pricing';
 import { regionLabel, switchRegion } from '@shared/regions';
 import type { ConvertedRegionPrice } from '@shared/types';
 import { errorText } from '../../api/client';
@@ -179,7 +179,7 @@ export default function GameScreen() {
                 accessibilityLabel={watch ? 'Stop watching' : 'Watch price'}
               />
               {g.storeUrl ? (
-                <Button label="Store" icon="open-outline" variant="secondary" onPress={() => Linking.openURL(g.storeUrl!)} accessibilityLabel={`Open in ${isSteam ? 'Steam' : 'the Nintendo eShop'}`} />
+                <Button label="Store" icon="open-outline" variant="secondary" onPress={() => void Linking.openURL(g.storeUrl!).catch(() => undefined)} accessibilityLabel={`Open in ${isSteam ? 'Steam' : 'the Nintendo eShop'}`} />
               ) : null}
             </View>
           </View>
@@ -332,7 +332,7 @@ function AlertSettings({ game, target, alerts, currency, suggested }: { game: Ap
                   commitTarget(next);
                 }}
                 maxFontSizeMultiplier={1.3}
-                placeholder={suggested ? (suggested * 0.75).toFixed(currency === 'JPY' ? 0 : 2) : 'Price'}
+                placeholder={suggested ? (suggested * 0.75).toFixed(currencyDigits(currency)) : 'Price'}
                 placeholderTextColor={c.subtle}
                 keyboardType="decimal-pad"
                 returnKeyType="done"

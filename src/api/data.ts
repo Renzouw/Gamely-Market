@@ -1,8 +1,7 @@
 import type { ApiActivity, ApiFx, ApiGame, ApiGameDetail, ApiList, ApiPrice, ApiSaleEvent, ApiWatch, DealQuery, DirectoryOptions } from '@shared/api';
-import { convert } from '@shared/pricing';
 import type { FxRates, Game } from '@shared/types';
 import { directDeals, directFx, directGameDetail, directGames, directPrices, type DirectContext } from '../direct';
-import { localLows, useLocalHistory } from '../direct/history';
+import { localLows, lowestOf, useLocalHistory } from '../direct/history';
 import { useSettings } from '../state/settings';
 import { api, ApiError } from './client';
 import { currentMode, reportServerDown, type DataMode } from './server';
@@ -20,6 +19,12 @@ export function directContext(): DirectContext {
 
 const serverUnavailable = (e: unknown) => e instanceof ApiError && (e.status === 0 || e.status >= 500);
 
+/**
+ * A screen's query passes the mode it was made for, and its key includes it.
+ * When the server stops answering, switching to phone-only mode starts that
+ * screen's phone-only query anyway, so this one just gives up instead of
+ * asking the stores twice. Callers that pass no mode fall back here.
+ */
 async function route<T>(mode: DataMode | undefined, server: () => Promise<T>, local: () => Promise<T>): Promise<T> {
   if ((mode ?? (await currentMode())) !== 'server') return local();
   try {
@@ -27,6 +32,7 @@ async function route<T>(mode: DataMode | undefined, server: () => Promise<T>, lo
   } catch (e) {
     if (!serverUnavailable(e)) throw e;
     reportServerDown();
+    if (mode) throw e;
     return local();
   }
 }
@@ -84,12 +90,7 @@ export interface WatchPrices {
 
 function lowestFromHistory(key: string, currency: string, fx: FxRates | undefined, regions: Set<string>): ApiWatch['lowest'] {
   const rows = (useLocalHistory.getState().games[key]?.rows ?? []).filter((r) => regions.has(r.country));
-  let lowest: ApiWatch['lowest'];
-  for (const l of localLows(rows)) {
-    const v = convert(l.price, l.currency, currency, fx);
-    if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
-  }
-  return lowest;
+  return lowestOf(localLows(rows), currency, fx);
 }
 
 /**
@@ -102,9 +103,9 @@ export async function getWatchPrices(games: ApiGame[], fx: FxRates | undefined, 
     const out: Record<string, WatchPrices> = {};
     if (!list.length) return out;
     const prices = await directPrices(list, ctx);
+    useLocalHistory.getState().recordMany(list.map((g) => [g.key, prices.get(g.key) ?? []]));
     for (const g of list) {
       const p = prices.get(g.key) ?? [];
-      useLocalHistory.getState().record(g.key, p);
       out[g.key] = { prices: p, lowest: lowestFromHistory(g.key, ctx.currency, fx, new Set(p.map((x) => x.country))) };
     }
     return out;
@@ -114,7 +115,7 @@ export async function getWatchPrices(games: ApiGame[], fx: FxRates | undefined, 
     async () => {
       const server = await api<{ items: ApiWatch[] }>('/v1/watches', { auth: true });
       const out: Record<string, WatchPrices> = Object.fromEntries(server.items.map((w) => [w.game.key, { prices: w.prices, lowest: w.lowest }]));
-      for (const [key, v] of Object.entries(out)) useLocalHistory.getState().record(key, v.prices);
+      useLocalHistory.getState().recordMany(Object.entries(out).map(([key, v]) => [key, v.prices]));
       // Games watched since the last sync aren't on the server yet
       const missing = games.filter((g) => !out[g.key]);
       if (missing.length) Object.assign(out, await viaPhone(missing).catch(() => ({})));

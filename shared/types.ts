@@ -62,10 +62,3 @@ export interface FxRates {
   updatedAt: number;
 }
 
-export interface PricePoint {
-  /** epoch ms */
-  t: number;
-  /** best price in home currency at that time */
-  best: number;
-  country: string;
-}

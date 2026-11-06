@@ -1,5 +1,8 @@
 export const SCHEMA = `
 PRAGMA journal_mode = WAL;
+-- Safe with WAL (a power cut can lose the last moments of writes, never corrupt the file),
+-- and far fewer disk flushes than the default
+PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS games (

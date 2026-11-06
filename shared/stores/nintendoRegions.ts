@@ -163,8 +163,12 @@ export const eshopTitleUrl = (country: string, lang: string, nsuid: string, base
  * Reads the application ID from a title page. The page embeds the title's
  * data as escaped JSON ("serverFragment"); we only trust it when it is the
  * title we asked for and it names exactly one application.
+ *
+ * Returns the ID; null when the page is this title's but has no single ID
+ * (an answer worth remembering); undefined when the page isn't this title's
+ * data at all (an error or challenge page: try again later).
  */
-export function parseEshopAppId(html: string, nsuid: string): string | undefined {
+export function parseEshopAppId(html: string, nsuid: string): string | null | undefined {
   const start = html.indexOf('serverFragment');
   if (start < 0) return undefined;
   // The data sits inside a JavaScript string, so its quotes are escaped
@@ -183,10 +187,10 @@ export function parseEshopAppId(html: string, nsuid: string): string | undefined
     else if (ch === '}' && --depth === 0) {
       try {
         const frag = JSON.parse(text.slice(open, i + 1)) as { nsUid?: number | string; applications?: { id?: string }[] };
+        if (String(frag.nsUid) !== nsuid) return undefined;
         const apps = frag.applications ?? [];
-        if (String(frag.nsUid) !== nsuid || apps.length !== 1) return undefined;
-        const id = apps[0].id?.toLowerCase();
-        return id && /^[0-9a-f]{16}$/.test(id) ? id : undefined;
+        const id = apps.length === 1 ? apps[0].id?.toLowerCase() : undefined;
+        return id && /^[0-9a-f]{16}$/.test(id) ? id : null;
       } catch {
         return undefined;
       }

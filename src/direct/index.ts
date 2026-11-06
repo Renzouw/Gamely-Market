@@ -13,7 +13,7 @@
  */
 import type { ApiFx, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiPrice, DealQuery, DirectoryOptions, DirectorySort } from '@shared/api';
 import { dailyBest } from '@shared/history';
-import { convert, summarize } from '@shared/pricing';
+import { summarize } from '@shared/pricing';
 import { HOME_CURRENCIES, STEAM_REGIONS, SWITCH_REGIONS, steamStoreCountry } from '@shared/regions';
 import { FX_FALLBACK, FX_PRIMARY, mergeFx, quotesToRates, type ErApiResponse, type FrankfurterResponse } from '@shared/stores/fx';
 import {
@@ -44,7 +44,7 @@ import {
 } from '@shared/stores/steam';
 import type { FxRates, Game, RegionPrice, ShopGroup } from '@shared/types';
 import { chunk, getJson, qs, StoreError } from './http';
-import { localLows, useLocalHistory } from './history';
+import { localLows, lowestOf, useLocalHistory } from './history';
 import { withKnownIds } from '../state/links';
 
 export interface DirectContext {
@@ -317,11 +317,7 @@ export async function directGameDetail(key: string, ctx: DirectContext, fx: FxRa
   const regions = new Set(prices.map((p) => p.country));
   const rows = (rec?.rows ?? []).filter((r) => regions.has(r.country));
   const lows = localLows(rows);
-  let lowest: ApiGameDetail['lowest'];
-  for (const l of lows) {
-    const v = convert(l.price, l.currency, ctx.currency, fx);
-    if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
-  }
+  const lowest = lowestOf(lows, ctx.currency, fx);
   return {
     game: toApiGame(game, prices),
     prices,

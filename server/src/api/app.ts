@@ -21,6 +21,7 @@ import { activeEvents } from '../events/run';
 interface DeviceRow {
   id: string;
   secret_hash: string;
+  last_seen: number;
   currency: string;
   home_region: string;
   switch_regions: string;
@@ -121,12 +122,17 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     await Promise.race([Promise.all(waiting), new Promise((r) => setTimeout(r, timeoutMs))]);
   }
 
+  /** When each Steam search last ran, oldest first */
+  const steamSearched = new Map<string, number>();
+  const STEAM_SEARCH_TTL = 10 * 60_000;
+
   const requireDevice = async (c: Context<Env>, next: Next) => {
     const [id, secret] = (c.req.header('authorization') ?? '').replace(/^Bearer\s+/i, '').split('.');
     const d = id && secret ? get<DeviceRow>(db, 'SELECT * FROM devices WHERE id = ?', id) : undefined;
     const ok = d && timingSafeEqual(Buffer.from(sha256(secret)), Buffer.from(d.secret_hash));
     if (!ok) return c.json({ error: 'Unknown device' }, 401);
-    run(db, 'UPDATE devices SET last_seen = ? WHERE id = ?', Date.now(), d.id);
+    const now = Date.now();
+    if (now - d.last_seen > 60_000) run(db, 'UPDATE devices SET last_seen = ? WHERE id = ?', now, d.id);
     c.set('device', d);
     await next();
   };
@@ -222,9 +228,13 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     const { regions } = effectiveRegions(platform === 'all-switch' ? 'switch' : platform, home, asked);
 
     // Steam has far too many games to mirror, so search it live and keep what we find.
-    if (platform === 'steam' && key.length >= 2 && !q.data.cursor) {
+    // Typing goes past the same words again and again; a search from the last few minutes is still in the database.
+    if (platform === 'steam' && key.length >= 2 && !q.data.cursor && !(Date.now() - (steamSearched.get(key) ?? 0) < STEAM_SEARCH_TTL)) {
       try {
         const found = await searchSteam(q.data.q, 'US');
+        steamSearched.delete(key);
+        steamSearched.set(key, Date.now());
+        if (steamSearched.size > 300) steamSearched.delete(steamSearched.keys().next().value!);
         for (const g of found) upsertGame(db, { id: g.key, platform: 'steam', title: g.title, image: g.image, storeUrl: g.storeUrl, steamAppId: g.steamAppId });
         const unpriced = found.map((g) => g.key).filter((id) => !(pricesFor(db, [id], regions).get(id)?.length));
         if (unpriced.length) await refreshNow(unpriced, 5000);
@@ -247,39 +257,42 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     let g = getGame(db, id);
     if (!g) return c.json({ error: 'Game not found' }, 404);
 
-    const { regions } = effectiveRegions(g.platform, q.data.home, csv(c.req.query('regions')));
-    let rows = pricesFor(db, [id], regions).get(id) ?? [];
+    const { regions, home } = effectiveRegions(g.platform, q.data.home, csv(c.req.query('regions')));
+    const nsuids = nsuidsForGames(db, [id]).get(id) ?? {};
+    let everywhere = pricesFor(db, [id]).get(id) ?? [];
+    let rows = everywhere.filter((r) => regions.includes(r.country));
     // Refresh when what we have is old, when we've never priced it at all, or when it was
     // just linked in a region group (say the Americas) that has no prices yet
-    const allRows = rows.length ? rows : (pricesFor(db, [id]).get(id) ?? []);
-    const oldest = allRows.length ? Math.min(...allRows.map((r) => r.checked_at)) : 0;
-    const linked = nsuidsForGames(db, [id]).get(id) ?? {};
-    const priced = new Set((pricesFor(db, [id]).get(id) ?? []).map((r) => r.country));
-    const unpricedGroup = g.platform !== 'steam' && (Object.keys(linked) as Group[]).some((grp) => {
+    const oldestOf = (list: typeof rows) => (list.length ? Math.min(...list.map((r) => r.checked_at)) : 0);
+    const priced = new Set(everywhere.map((r) => r.country));
+    const unpricedGroup = g.platform !== 'steam' && (Object.keys(nsuids) as Group[]).some((grp) => {
       const countries = SWITCH_REGIONS.filter((r) => r.group === grp && (grp !== 'americas' || americasEnabled()));
       return countries.length > 0 && !countries.some((r) => priced.has(r.code));
     });
-    if (Date.now() - oldest > config.refreshOnViewAfterMs || unpricedGroup) {
+    if (Date.now() - oldestOf(rows.length ? rows : everywhere) > config.refreshOnViewAfterMs || unpricedGroup) {
       await refreshNow([id], 4000);
       g = getGame(db, id)!;
-      rows = pricesFor(db, [id], regions).get(id) ?? [];
+      everywhere = pricesFor(db, [id]).get(id) ?? [];
+      rows = everywhere.filter((r) => regions.includes(r.country));
     }
 
     const fx = readFx(db);
     const now = Date.now();
+    // On Steam you can only pay your own store's price: its history and lowest are the ones that count
+    const paid = g.platform === 'steam' ? [home] : regions;
     const hist = all<HistoryRow>(
       db,
-      `SELECT country, t, currency, price, discount FROM price_history WHERE game_id = ? AND country IN (${placeholders(regions.length)}) ORDER BY t`,
+      `SELECT country, t, currency, price, discount FROM price_history WHERE game_id = ? AND country IN (${placeholders(paid.length)}) ORDER BY t`,
       id,
-      ...regions,
+      ...paid,
     );
     const lows = (lowsFor(db, [id]).get(id) ?? []).filter((l) => regions.includes(l.country));
     let lowest: ApiGameDetail['lowest'];
     for (const l of lows) {
+      if (!paid.includes(l.country)) continue;
       const v = convert(l.price, l.currency, q.data.currency, fx);
       if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
     }
-    const nsuids = nsuidsForGames(db, [id]).get(id) ?? {};
     const groups = new Set(SWITCH_REGIONS.filter((r) => regions.includes(r.code)).map((r) => r.group));
     const unmatched =
       g.platform === 'steam'
@@ -344,14 +357,9 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     // A push token belongs to one install. After a reinstall, take it off the old device row
     // so the phone doesn't get every alert twice.
     if (v.pushToken) run(db, 'UPDATE devices SET push_token = NULL WHERE push_token = ? AND id != ?', v.pushToken, d.id);
-    // Target prices are stored in the device's currency; convert them when it changes
-    const fx = readFx(db);
-    if (v.currency !== d.currency && fx) {
-      for (const w of all<{ game_id: string; target: number }>(db, 'SELECT game_id, target FROM watches WHERE device_id = ? AND target IS NOT NULL', d.id)) {
-        const t = convert(w.target, d.currency, v.currency, fx);
-        run(db, 'UPDATE watches SET target = ? WHERE device_id = ? AND game_id = ?', t === undefined ? null : Math.round(t * 100) / 100, d.id, w.game_id);
-      }
-    }
+    // Target prices are in the device's currency. When it changes, the phone converts
+    // them and re-sends every watch (it's the source of truth), so they must not be
+    // converted here as well: that turned a $20 target into ¥450,000.
     run(
       db,
       `UPDATE devices SET push_token = COALESCE(?, push_token), os = ?, home_region = ?, currency = ?, switch_regions = ?, steam_regions = ?,
@@ -387,20 +395,28 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     );
     const fx = readFx(db);
     const lows = lowsFor(db, ids);
+    // One query for every watched game's prices, filtered per game below
+    const allPrices = pricesFor(db, ids);
+    // The phone prices these itself when the server is off, so it needs every region's ID
+    const nsuids = nsuidsForGames(db, ids);
+    const switchRegions = JSON.parse(d.switch_regions) as string[];
+    const steamRegions = JSON.parse(d.steam_regions) as string[];
     const now = Date.now();
     const out: ApiWatch[] = [];
     for (const r of rows) {
       const g = games.get(r.game_id);
       if (!g) continue;
-      const { regions } = effectiveRegions(g.platform, d.home_region, JSON.parse(g.platform === 'steam' ? d.steam_regions : d.switch_regions));
-      const prices = (pricesFor(db, [g.id], regions).get(g.id) ?? []).map((p) => rowToPrice(p, now));
+      const { regions, home } = effectiveRegions(g.platform, d.home_region, g.platform === 'steam' ? steamRegions : switchRegions);
+      const prices = (allPrices.get(g.id) ?? []).filter((p) => regions.includes(p.country)).map((p) => rowToPrice(p, now));
+      // On Steam you can only pay your own store's price, so its lowest is the one that counts
+      const lowRegions = g.platform === 'steam' ? [home] : regions;
       let lowest: ApiWatch['lowest'];
       for (const l of lows.get(g.id) ?? []) {
-        if (!regions.includes(l.country)) continue;
+        if (!lowRegions.includes(l.country)) continue;
         const v = convert(l.price, l.currency, d.currency, fx);
         if (v !== undefined && (!lowest || v < lowest.price)) lowest = { price: Math.round(v * 100) / 100, country: l.country, at: l.at };
       }
-      out.push({ game: rowToGame(g), target: r.target ?? undefined, alerts: { ...DEFAULT_ALERTS, ...JSON.parse(r.alerts) }, createdAt: r.created_at, prices, lowest });
+      out.push({ game: rowToGame(g, nsuids.get(g.id)), target: r.target ?? undefined, alerts: { ...DEFAULT_ALERTS, ...JSON.parse(r.alerts) }, createdAt: r.created_at, prices, lowest });
     }
     return out;
   }

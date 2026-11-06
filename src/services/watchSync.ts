@@ -9,10 +9,18 @@ import { useWatchlist } from '../state/watchlist';
  * games removed while offline get removed.
  */
 let running: Promise<void> | undefined;
+let again = false;
 
 export function syncWatches(): Promise<void> {
-  running ??= (async () => {
+  // A change made while a sync is on its way may already have been passed: go round once more after
+  if (running) {
+    again = true;
+    return running;
+  }
+  running = (async () => {
     if (useServer.getState().mode !== 'server') return;
+    // Until the saved watchlist loads it looks empty, and every watch on the server would be deleted
+    if (!useWatchlist.persist.hasHydrated()) return;
     const store = useWatchlist.getState();
     for (const key of store.removed) {
       await api(`/v1/watches/${encodeURIComponent(key)}`, { method: 'DELETE', auth: true }).catch(() => undefined);
@@ -45,6 +53,12 @@ export function syncWatches(): Promise<void> {
     }
   })()
     .catch(() => undefined)
-    .finally(() => (running = undefined));
+    .finally(() => {
+      running = undefined;
+      if (again) {
+        again = false;
+        void syncWatches();
+      }
+    });
   return running;
 }

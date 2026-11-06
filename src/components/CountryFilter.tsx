@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView } from 'react-native';
 import { SWITCH_REGIONS, type Region } from '@shared/regions';
 import { directPricedCountries } from '../direct';
@@ -18,12 +18,13 @@ export function useCountryOptions(): Region[] {
   const mode = useDataMode();
   const americas = useStatus().data?.americasEnabled === true;
   const haveMatches = useLinkCount((s) => s.count > 0);
-  const codes = new Set(
-    mode === 'direct'
-      ? directPricedCountries({ home: prefs.home, currency: prefs.currency, switchRegions: prefs.switchRegions, steamRegions: prefs.steamRegions }, haveMatches)
-      : [...prefs.switchRegions, prefs.home],
-  );
-  return SWITCH_REGIONS.filter((r) => codes.has(r.code) && (mode === 'direct' || r.group !== 'americas' || americas));
+  const { home, currency, switchRegions, steamRegions } = prefs;
+  return useMemo(() => {
+    const codes = new Set(
+      mode === 'direct' ? directPricedCountries({ home, currency, switchRegions, steamRegions }, haveMatches) : [...switchRegions, home],
+    );
+    return SWITCH_REGIONS.filter((r) => codes.has(r.code) && (mode === 'direct' || r.group !== 'americas' || americas));
+  }, [mode, americas, haveMatches, home, currency, switchRegions, steamRegions]);
 }
 
 /**
@@ -46,7 +47,7 @@ export function useCountry(value: string | undefined): Region | undefined {
 export function CountryChip({ value, onChange }: { value: string | undefined; onChange: (code: string | undefined) => void }) {
   const [open, setOpen] = useState(false);
   const options = useCountryOptions();
-  const selected = useCountry(value);
+  const selected = value ? options.find((r) => r.code === value) : undefined;
   const pick = (code: string | undefined) => (onChange(code), setOpen(false));
   return (
     <>

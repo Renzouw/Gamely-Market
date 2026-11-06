@@ -89,6 +89,27 @@ export function upsertGame(db: Db, g: GameInput, now = Date.now()) {
   );
 }
 
+/** Another region's listing of a game we already have: fill only what's missing, never overwrite. */
+export function fillGameGaps(db: Db, id: string, g: Omit<GameInput, 'id' | 'title' | 'platform'>, now = Date.now()) {
+  run(
+    db,
+    `UPDATE games SET
+       image = COALESCE(image, ?), publisher = COALESCE(publisher, ?), release_date = COALESCE(release_date, ?),
+       product_code = COALESCE(product_code, ?), app_id = COALESCE(app_id, ?), store_url = COALESCE(store_url, ?),
+       rank = COALESCE(rank, ?), updated_at = ?
+     WHERE id = ?`,
+    g.image ?? null,
+    g.publisher ?? null,
+    g.releaseDate ?? null,
+    g.productCode ?? null,
+    g.appId ?? null,
+    g.storeUrl ?? null,
+    g.rank ?? null,
+    now,
+    id,
+  );
+}
+
 export function getGame(db: Db, id: string): GameRow | undefined {
   return get<GameRow>(db, 'SELECT * FROM games WHERE id = ?', id);
 }
@@ -282,7 +303,12 @@ export function removePrice(db: Db, gameId: string, country: string, now = Date.
 /** Keep the denormalized sale flags on games in step with prices. */
 export function refreshSaleFlags(db: Db, ids: string[], now = new Date()) {
   const nowIso = now.toISOString();
-  for (const id of ids) {
+  // One transaction: a write each in its own commit is hundreds of disk flushes per chunk
+  tx(db, () => ids.forEach((id) => saleFlagsFor(db, id, nowIso)));
+}
+
+function saleFlagsFor(db: Db, id: string, nowIso: string) {
+  {
     const r = get<{ on_sale: number; max_discount: number | null; ends: string | null }>(
       db,
       // A sale counts only while it's live: no end date, or an end date still ahead

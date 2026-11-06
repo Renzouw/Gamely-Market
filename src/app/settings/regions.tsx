@@ -51,7 +51,8 @@ export default function RegionsScreen() {
 
       {GROUPS.map((g) => {
         const regions = SWITCH_REGIONS.filter((r) => g.groups.includes(r.group));
-        const allOn = regions.every((r) => s.switchRegions.includes(r.code));
+        // Home always counts as ticked, as its row shows
+        const allOn = regions.every((r) => r.code === s.homeRegion || s.switchRegions.includes(r.code));
         const off = g.id === 'americas' && americasOff;
         return (
           <Group key={g.id} title={`Switch · ${g.label}`} footer={off ? "Prices for the Americas aren’t available from our server yet, so these won’t show for now." : undefined}>

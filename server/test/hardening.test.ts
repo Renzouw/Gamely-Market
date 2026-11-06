@@ -132,11 +132,12 @@ describe('devices and watches', () => {
     expect(get(db, 'SELECT push_token FROM devices WHERE id = ?', b.id)).toEqual({ push_token: 'ExponentPushToken[same]' });
   });
 
-  it('converts target prices when the currency changes', async () => {
+  it('leaves converting target prices to the phone when the currency changes', async () => {
     const app = createApp(db);
     run(db, "INSERT INTO games (id, platform, title, title_key, created_at, updated_at) VALUES ('g','switch','G','g',0,0)");
     const d = await newDevice(app);
-    await app.request('/v1/watches/g', { method: 'PUT', headers: d.headers, body: JSON.stringify({ target: 20 }) });
+    // The phone converts $20 to £16 and sends the watch first, then the new currency
+    await app.request('/v1/watches/g', { method: 'PUT', headers: d.headers, body: JSON.stringify({ target: 16 }) });
     await app.request('/v1/devices/me', { method: 'PUT', headers: d.headers, body: JSON.stringify({ homeRegion: 'GB', currency: 'GBP', switchRegions: ['GB'], steamRegions: [], tz: 'UTC', alertsEnabled: true }) });
     expect(get(db, "SELECT target FROM watches WHERE game_id = 'g'")).toEqual({ target: 16 });
   });

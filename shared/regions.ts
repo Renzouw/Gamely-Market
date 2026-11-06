@@ -115,18 +115,10 @@ export function regionLabel(code: string): { name: string; flag: string } {
 export const DEFAULT_SWITCH_REGIONS = SWITCH_REGIONS.map((r) => r.code);
 export const DEFAULT_STEAM_REGIONS = ['US', 'GB', 'DE', 'CA', 'AU', 'JP', 'BR', 'MX', 'AR', 'TR', 'IN', 'PL'];
 
-export function steamRegion(code: string) {
-  return steamByCode.get(code);
-}
-
 /** Steam store country to browse deals in. Falls back to US if your home region isn't in the list. */
 export function steamStoreCountry(home: string): { code: string; currency: string } {
   const r = steamByCode.get(home) ?? (SWITCH_REGIONS.some((x) => x.code === home && x.currency === 'EUR') ? steamByCode.get('DE') : undefined);
   return r ? { code: r.code, currency: r.currency } : { code: 'US', currency: 'USD' };
-}
-
-export function regionsInGroup(group: Region['group'], selected: string[]): Region[] {
-  return SWITCH_REGIONS.filter((r) => r.group === group && selected.includes(r.code));
 }
 
 /** Rough guess of a sensible starting setup from the device locale. */

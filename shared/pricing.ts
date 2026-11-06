@@ -71,12 +71,23 @@ export function discountPercent(regular: number, sale?: number): number {
 
 const ZERO_DECIMAL = new Set(['JPY', 'KRW', 'CLP', 'COP', 'VND', 'IDR', 'HUF', 'ISK', 'TWD']);
 
+/** Decimal places a currency's prices are shown with: 0 for yen, won and the like, else 2. */
+export function currencyDigits(currency: string): number {
+  return ZERO_DECIMAL.has(currency) ? 0 : 2;
+}
+
 export function formatMoney(amount: number | undefined, currency: string, locale?: string): string {
   if (amount === undefined || Number.isNaN(amount)) return '–';
   if (amount === 0) return 'Free';
-  const digits = ZERO_DECIMAL.has(currency) ? 0 : 2;
+  const digits = currencyDigits(currency);
   const f = formatter(currency, digits, locale);
   return f ? f.format(amount) : `${currency} ${amount.toFixed(digits)}`;
+}
+
+/** A whole amount, like a gift card's face value: "$50", not "$50.00". */
+export function formatWhole(amount: number, currency: string, locale?: string): string {
+  const f = formatter(currency, 0, locale);
+  return f ? f.format(amount) : `${currency} ${Math.round(amount)}`;
 }
 
 /** Building an Intl.NumberFormat is slow; lists format hundreds of prices, so reuse them. */

@@ -16,7 +16,6 @@ interface WatchJoin {
   currency: string;
   home_region: string;
   switch_regions: string;
-  steam_regions: string;
   tz: string;
   quiet_start: number | null;
   quiet_end: number | null;
@@ -27,7 +26,7 @@ function watchersOf(db: Db, gameIds: string[]): WatchJoin[] {
   return all<WatchJoin>(
     db,
     `SELECT w.device_id, w.game_id, w.target, w.alerts, g.title, g.platform,
-            d.currency, d.home_region, d.switch_regions, d.steam_regions, d.tz, d.quiet_start, d.quiet_end
+            d.currency, d.home_region, d.switch_regions, d.tz, d.quiet_start, d.quiet_end
      FROM watches w JOIN devices d ON d.id = w.device_id JOIN games g ON g.id = w.game_id
      WHERE w.game_id IN (${placeholders(gameIds.length)})`,
     ...gameIds,
@@ -41,7 +40,6 @@ function ctx(w: WatchJoin): { device: DeviceCtx; watch: WatchCtx } {
       currency: w.currency,
       homeRegion: w.home_region,
       switchRegions: JSON.parse(w.switch_regions),
-      steamRegions: JSON.parse(w.steam_regions),
     },
     watch: {
       gameId: w.game_id,

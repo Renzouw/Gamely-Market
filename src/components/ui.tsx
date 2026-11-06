@@ -64,6 +64,8 @@ export function Button({
     <Tap
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ busy: !!loading, disabled: !!loading }}
+      disabled={loading}
       onPress={() => (haptic('light'), onPress())}
       style={[styles.button, { backgroundColor: bg }, style]}
     >
@@ -163,20 +165,32 @@ export const Cover = memo(function Cover({
   );
 });
 
+/** Every skeleton on screen pulses together off one shared animation, started by the first and stopped by the last. */
+const pulse = new Animated.Value(0.55);
+let pulseUsers = 0;
+let pulseLoop: Animated.CompositeAnimation | undefined;
+function usePulse() {
+  useEffect(() => {
+    if (pulseUsers++ === 0) {
+      const native = RNPlatform.OS !== 'web';
+      pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: native }),
+          Animated.timing(pulse, { toValue: 0.55, duration: 650, useNativeDriver: native }),
+        ]),
+      );
+      pulseLoop.start();
+    }
+    return () => {
+      if (--pulseUsers === 0) pulseLoop?.stop();
+    };
+  }, []);
+  return pulse;
+}
+
 export function Skeleton({ height, width, style, rounded = radius.sm }: { height: number; width?: number | `${number}%`; style?: StyleProp<ViewStyle>; rounded?: number }) {
   const { c } = useTheme();
-  const [pulse] = useState(() => new Animated.Value(0.55));
-  useEffect(() => {
-    const native = RNPlatform.OS !== 'web';
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: native }),
-        Animated.timing(pulse, { toValue: 0.55, duration: 650, useNativeDriver: native }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
+  const pulse = usePulse();
   return <Animated.View style={[{ height, width: width ?? '100%', backgroundColor: c.skeleton, borderRadius: rounded, opacity: pulse }, style]} />;
 }
 
@@ -315,7 +329,7 @@ export function Sheet({ visible, onClose, title, children }: { visible: boolean;
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} accessibilityLabel="Close" />
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
       <View style={[styles.sheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + space.md }]}>
         <View style={[styles.grabber, { backgroundColor: c.line }]} />
         <Text variant="headline" style={{ paddingHorizontal: GUTTER, paddingVertical: space.md }}>

@@ -7,6 +7,7 @@ import { Button, Group, Row } from '../../components/ui';
 import { useFx, useStatus } from '../../hooks/queries';
 import { ago, shortDate } from '../../lib/format';
 import { pushUnavailableReason } from '../../services/push';
+import { useLinkCount } from '../../state/links';
 import { useSettings } from '../../state/settings';
 import { font, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
@@ -21,6 +22,7 @@ export default function SourcesScreen() {
   const [address, setAddress] = useState(saved || DEFAULT_SERVER_URL);
   const [checking, setChecking] = useState(false);
   const status = useStatus();
+  const haveMatches = useLinkCount((x) => x.count > 0);
   const fx = useFx().data;
   const push = pushUnavailableReason();
   const connected = server.mode === 'server';
@@ -106,9 +108,18 @@ export default function SourcesScreen() {
         </Group>
       ) : (
         <Group title="In phone-only mode">
-          <Row first label="Nintendo eShop" detail="Europe, Oceania and South Africa prices, live. Japan on game pages." icon={<Ionicons name="checkmark-circle" size={20} color={c.signalText} />} />
+          <Row
+            first
+            label="Nintendo eShop"
+            detail={
+              haveMatches
+                ? 'Every region, live: Europe, Oceania and South Africa for all games, the Americas and Asia for the games your server matched.'
+                : 'Europe, Oceania and South Africa, live. The Americas and Asia need your server to connect once first.'
+            }
+            icon={<Ionicons name="checkmark-circle" size={20} color={c.signalText} />}
+          />
           <Row label="Steam" detail="Your store’s deals and every region’s price, live." icon={<Ionicons name="checkmark-circle" size={20} color={c.signalText} />} />
-          <Row label="Needs the server" detail="Americas eShops, store-wide sale alerts, and price history from before you installed the app." icon={<Ionicons name="remove-circle" size={20} color={c.subtle} />} />
+          <Row label="Needs the server" detail="Deals that run only outside Europe, games sold only in the Americas, store-wide sale alerts, and price history from before you installed the app." icon={<Ionicons name="remove-circle" size={20} color={c.subtle} />} />
         </Group>
       )}
 

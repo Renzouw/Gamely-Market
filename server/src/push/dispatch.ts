@@ -22,14 +22,35 @@ export const MAX_ATTEMPTS = 6;
 /** Four or more alerts for one person at once become a single summary. */
 export const DIGEST_AT = 4;
 
+/** Store-wide sale and big-deal messages aren't about a watched game, so they never join the watchlist summary. */
+const NOT_WATCHLIST = new Set(['event', 'deals']);
+
 export function buildMessages(due: Due[]): { message: PushMessage; ids: number[] }[] {
   const byDevice = new Map<string, Due[]>();
-  for (const n of due) byDevice.set(n.device_id, [...(byDevice.get(n.device_id) ?? []), n]);
+  const single: Due[] = [];
+  for (const n of due) {
+    if (NOT_WATCHLIST.has(n.kind)) single.push(n);
+    else byDevice.set(n.device_id, [...(byDevice.get(n.device_id) ?? []), n]);
+  }
   const out: { message: PushMessage; ids: number[] }[] = [];
+  const one = (n: Due) =>
+    out.push({
+      message: {
+        to: n.push_token!,
+        title: n.title,
+        body: n.body,
+        data: JSON.parse(n.data),
+        sound: 'default',
+        channelId: 'price-alerts',
+        collapseId: n.game_id ?? undefined,
+        priority: n.kind === 'ending' || n.kind === 'target' ? 'high' : 'default',
+      },
+      ids: [n.id],
+    });
   for (const list of byDevice.values()) {
     const to = list[0].push_token!;
     if (list.length >= DIGEST_AT) {
-      const names = list.slice(0, 3).map((n) => n.title.replace(/ (is on sale|hit your price|dropped to .*)$/, '').replace(/^Last chance: /, '').replace(/: lowest price yet$/, '').replace(/ is \d+% off$/, ''));
+      const names = list.slice(0, 3).map((n) => n.title.replace(/ (is on sale( in your eShop)?|hit your price|dropped to .*)$/, '').replace(/^Last chance: /, '').replace(/: lowest price yet$/, '').replace(/ is \d+% off$/, ''));
       out.push({
         message: {
           to,
@@ -41,24 +62,9 @@ export function buildMessages(due: Due[]): { message: PushMessage; ids: number[]
         },
         ids: list.map((n) => n.id),
       });
-    } else {
-      for (const n of list) {
-        out.push({
-          message: {
-            to,
-            title: n.title,
-            body: n.body,
-            data: JSON.parse(n.data),
-            sound: 'default',
-            channelId: 'price-alerts',
-            collapseId: n.game_id ?? undefined,
-            priority: n.kind === 'ending' || n.kind === 'target' ? 'high' : 'default',
-          },
-          ids: [n.id],
-        });
-      }
-    }
+    } else list.forEach(one);
   }
+  single.forEach(one);
   return out;
 }
 
@@ -72,15 +78,17 @@ export async function dispatch(db: Db, now = Date.now()): Promise<{ sent: number
   );
   let skipped = 0;
   const deliverable: Due[] = [];
-  for (const n of due) {
-    // Every alert stays in the in-app feed; push is only for phones that turned it on.
-    const reason =
-      n.expires_at !== null && n.expires_at <= now ? 'expired' : !n.alerts_enabled ? 'push off' : !n.push_token || !isExpoToken(n.push_token) ? 'no push token' : undefined;
-    if (reason) {
-      run(db, "UPDATE notifications SET status = 'skipped', error = ? WHERE id = ?", reason, n.id);
-      skipped++;
-    } else deliverable.push(n);
-  }
+  tx(db, () => {
+    for (const n of due) {
+      // Every alert stays in the in-app feed; push is only for phones that turned it on.
+      const reason =
+        n.expires_at !== null && n.expires_at <= now ? 'expired' : !n.alerts_enabled ? 'push off' : !n.push_token || !isExpoToken(n.push_token) ? 'no push token' : undefined;
+      if (reason) {
+        run(db, "UPDATE notifications SET status = 'skipped', error = ? WHERE id = ?", reason, n.id);
+        skipped++;
+      } else deliverable.push(n);
+    }
+  });
   if (!deliverable.length) return { sent: 0, skipped, failed: 0, retried: 0 };
 
   const attemptsById = new Map(deliverable.map((n) => [n.id, n.attempts ?? 0]));

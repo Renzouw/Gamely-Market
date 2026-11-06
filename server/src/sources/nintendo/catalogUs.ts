@@ -155,9 +155,8 @@ async function search(params: Record<string, string>): Promise<AlgoliaResult> {
 
 /* --------------------------------- search --------------------------------- */
 
-export interface UsSearchParams {
-  platform: Exclude<Platform, 'steam'> | 'all';
-  query?: string;
+interface UsSearchParams {
+  platform: Exclude<Platform, 'steam'>;
   onSale?: boolean;
   page?: number;
   pageSize?: number;
@@ -166,17 +165,11 @@ export interface UsSearchParams {
 /** One page of a search. Algolia stops at 1,000 results; fetchUsCatalog reads past that. */
 export async function searchUs(p: UsSearchParams): Promise<{ games: Game[]; total: number }> {
   if (!americasEnabled()) return { games: [], total: 0 };
-  const filters = [FILTER.noDlc];
-  if (p.platform !== 'all') filters.push(FILTER.platform(p.platform));
+  const filters = [FILTER.noDlc, FILTER.platform(p.platform)];
   if (p.onSale) filters.push(FILTER.deals);
-  const result = await search({ query: p.query?.trim() ?? '', hitsPerPage: String(p.pageSize ?? 40), page: String(p.page ?? 0), filters: filters.join(' AND ') });
+  const result = await search({ query: '', hitsPerPage: String(p.pageSize ?? 40), page: String(p.page ?? 0), filters: filters.join(' AND ') });
   const games = (result.hits ?? []).map(usHitToGame).filter((g): g is Game => !!g);
   return { games, total: result.nbHits ?? games.length };
-}
-
-export async function getUsByNsuid(nsuid: string): Promise<Game | undefined> {
-  const { games } = await searchUs({ platform: 'all', query: nsuid, pageSize: 5 });
-  return games.find((g) => g.nsuids?.americas === nsuid);
 }
 
 /**

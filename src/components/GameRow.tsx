@@ -9,8 +9,6 @@ import { GUTTER, space, useTheme } from '../theme';
 import { Text } from '../theme/Text';
 import { Cover, PlatformLabel, Tap } from './ui';
 
-export const ROW_HEIGHT = 84;
-export const ROW_HEIGHT_TICKER = 110;
 const COVER_W = 106;
 const COVER_H = 60;
 
@@ -94,7 +92,8 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
       </View>
 
       {ticker && s.ranked.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.ticker, { paddingLeft: coverW + space.md }]} accessible={false}>
+        // A key per game: a recycled row would otherwise keep the last game's sideways scroll
+        <ScrollView key={game.key} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.ticker, { paddingLeft: coverW + space.md }]} accessible={false}>
           {s.ranked.slice(0, 10).map((p, i) =>
             p.converted === undefined ? null : (
               <View key={p.country} style={styles.tick}>
@@ -123,7 +122,7 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   price: { alignItems: 'flex-end', minWidth: 72, maxWidth: '36%', gap: 2, flexShrink: 0 },
   priceMeta: { flexDirection: 'row', gap: 6 },
-  ticker: { gap: space.lg, paddingTop: space.sm, paddingLeft: COVER_W + space.md },
+  ticker: { gap: space.lg, paddingTop: space.sm },
   tick: { flexDirection: 'row', gap: 5 },
-  rule: { height: StyleSheet.hairlineWidth, position: 'absolute', bottom: 0, left: GUTTER + COVER_W + space.md, right: 0 },
+  rule: { height: StyleSheet.hairlineWidth, position: 'absolute', bottom: 0, right: 0 },
 });
