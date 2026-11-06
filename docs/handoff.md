@@ -1,6 +1,6 @@
 # Handoff: where things stand
 
-Gamely was built in a cloud Claude Code session and moved to a local project on the owner's Windows PC (`D:\Users\Renzo\Desktop\Gamely-Market`, branch `ccr-86b2d07a-hyz453`). This note is what that conversation knew that the code doesn't say on its own.
+Gamely was built in a cloud Claude Code session and moved to a local project on the owner's Windows PC (`D:\Users\Renzo\Desktop\Gamely-Market`, branch `ccr-86b2d07a-hyz453`). Since 2026-11-06 `main` is the default branch on GitHub and holds the same work; each session pushes to both (see `AGENTS.md`). When no other session is using this folder, it can be switched to `main` (`git switch main`) and the old branch retired. This note is what that conversation knew that the code doesn't say on its own.
 
 ## How the owner works
 
@@ -43,7 +43,6 @@ Japan was never matched before 2026-11-06, for three reasons: the old lookup sea
 
 ## Open ideas, not started
 
-- Merging this branch into `main` once the owner is happy with it.
 - **A free always-on cloud server (paused 2026-11-06, the owner's call: "use the PC server for now").** Where it stands:
   - Chosen: Oracle Cloud Always Free, home region Singapore (`ap-singapore-1`), the `VM.Standard.E2.1.Micro` AMD shape (its public IPv4 is included free; 10 TB/month outbound). Google Cloud was ruled out: its free e2-micro is free but an in-use external IPv4 costs $0.005/hour (about $3.65/month, free allowance one hour a month).
   - Blocked on sign-up: Oracle doesn't accept prepaid or virtual cards (its FAQ), so the owner's Maya card was refused and GCash won't work either. Wise is hit-and-miss. A bank credit/debit card is the reliable route. Repeated failed card attempts can get a sign-up auto-rejected, so try once per card.

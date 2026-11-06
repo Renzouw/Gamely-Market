@@ -58,7 +58,7 @@ Gamely compares game prices across Nintendo eShop regions and Steam. Two parts:
 Before you finish: `npm test && npm run typecheck` at the root, and `npm test && npm run typecheck` in `server/`.
 
 Ship every session's work, without being asked (the owner wants changes on their phone and PC right away):
-1. Once the checks pass, commit and push.
+1. Once the checks pass, commit and push, and update `main` too: `git push origin HEAD:main` (`main` is the default branch on GitHub; this folder may still be on the older working branch `ccr-86b2d07a-hyz453`).
 2. If anything in `server/` or `shared/` changed, restart the background server: `node scripts/autostart.mjs restart`.
 3. If anything the app uses changed (`src/`, `shared/`, `assets/`, `app.json`), send it to the phone: `npm run update:app -- "<one line on what changed>"`. If the change needs native code (see the over-the-air rule above), raise `version` in app.json instead, run `npm run build:android`, and give the owner the install link; an over-the-air update can't carry it.
 4. Tell the owner what was sent, and that the phone picks it up after Gamely is closed and opened again twice.
