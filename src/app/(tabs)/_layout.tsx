@@ -24,6 +24,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Deals', tabBarIcon: icon('pricetag', 'pricetag-outline') }} />
       <Tabs.Screen name="directory" options={{ title: 'Directory', tabBarIcon: icon('albums', 'albums-outline') }} />
+      <Tabs.Screen name="cards" options={{ title: 'Cards', tabBarIcon: icon('card', 'card-outline') }} />
       <Tabs.Screen name="watchlist" options={{ title: 'Watchlist', tabBarIcon: icon('notifications', 'notifications-outline') }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: icon('person-circle', 'person-circle-outline') }} />
     </Tabs>

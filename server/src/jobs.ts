@@ -69,10 +69,16 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
   async function catalog() {
     for (const platform of ['switch2', 'switch'] as const) await syncEuCatalog(db, { platform, onSaleOnly: false });
     await syncUsFullCatalog(db);
+    // Games linked to the Americas that have no Americas price yet: price them now, not at the next daily sweep
+    const usUnpriced = all<{ id: string }>(
+      db,
+      `SELECT DISTINCT i.game_id AS id FROM game_ids i WHERE i.grp = 'americas'
+         AND NOT EXISTS (SELECT 1 FROM prices p WHERE p.game_id = i.game_id AND p.country IN ('US', 'CA', 'MX', 'BR', 'AR', 'CL', 'CO', 'PE'))`,
+    ).map((r) => r.id);
     await syncRegionCatalogs(db);
     const linked = await linkRegions(db);
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong or Korea`);
-    await refresh(linked);
+    await refresh([...new Set([...usUnpriced, ...linked])]);
   }
 
   /** Every game in every region, once a day. Catches sales the catalogs haven't flagged yet. */

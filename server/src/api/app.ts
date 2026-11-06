@@ -11,7 +11,7 @@ import { americasEnabled, config } from '../config';
 import { all, get, placeholders, run, type Db } from '../db';
 import { readFx } from '../ingest/fx';
 import { searchSteam } from '../sources/steam';
-import { attachNsuid, gameIdForNsuid, getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow } from '../store';
+import { attachNsuid, gameIdForNsuid, getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow, type Group } from '../store';
 import { dailyBest, type HistoryRow } from '@shared/history';
 import { effectiveRegions, listDeals, searchGames } from './listings';
 import { refreshAndAlert } from '../alerts/run';
@@ -228,10 +228,17 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
 
     const { regions } = effectiveRegions(g.platform, q.data.home, csv(c.req.query('regions')));
     let rows = pricesFor(db, [id], regions).get(id) ?? [];
-    // Refresh when what we have is old, or when we've never priced it at all
+    // Refresh when what we have is old, when we've never priced it at all, or when it was
+    // just linked in a region group (say the Americas) that has no prices yet
     const allRows = rows.length ? rows : (pricesFor(db, [id]).get(id) ?? []);
     const oldest = allRows.length ? Math.min(...allRows.map((r) => r.checked_at)) : 0;
-    if (Date.now() - oldest > config.refreshOnViewAfterMs) {
+    const linked = nsuidsForGames(db, [id]).get(id) ?? {};
+    const priced = new Set((pricesFor(db, [id]).get(id) ?? []).map((r) => r.country));
+    const unpricedGroup = g.platform !== 'steam' && (Object.keys(linked) as Group[]).some((grp) => {
+      const countries = SWITCH_REGIONS.filter((r) => r.group === grp && (grp !== 'americas' || americasEnabled()));
+      return countries.length > 0 && !countries.some((r) => priced.has(r.code));
+    });
+    if (Date.now() - oldest > config.refreshOnViewAfterMs || unpricedGroup) {
       await refreshNow([id], 4000);
       g = getGame(db, id)!;
       rows = pricesFor(db, [id], regions).get(id) ?? [];

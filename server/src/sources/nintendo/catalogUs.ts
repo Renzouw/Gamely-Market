@@ -35,8 +35,11 @@ const FILTER = {
   platform: (p: Exclude<Platform, 'steam'>) => `corePlatforms:"${PLATFORM_NAME[p]}"`,
   price: (loCents: number, hiCents: number) => `price.finalPrice >= ${(loCents / 100).toFixed(2)} AND price.finalPrice < ${(hiCents / 100).toFixed(2)}`,
 };
-/** One value per game, used to split a price point that has too many games for one search. */
-const SPLIT_BY = ['contentRatingCode', 'playerCount', 'corePlatforms'];
+/**
+ * Used in turn to split a price point that has too many games for one
+ * search. A game can have several genres; repeats are dropped by ID.
+ */
+const SPLIT_BY = ['contentRatingCode', 'playerCount', 'corePlatforms', 'gameGenreLabels'];
 /** Algolia never returns more than this many results for one search. */
 const MAX_RESULTS = 1000;
 

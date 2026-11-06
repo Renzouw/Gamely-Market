@@ -1,6 +1,7 @@
 import { convert, discountPercent, endsSoon, formatMoney, rankByPrice, summarize, timeLeft, withConversion } from '@shared/pricing';
 import { productCore, titleKey } from '@shared/match';
 import { DEFAULT_SWITCH_REGIONS, guessHome, steamStoreCountry, withNewRegions } from '@shared/regions';
+import { cardsFor, cardValues, enebaSearchUrl, ESHOP_CARDS } from '@shared/eshopCards';
 import type { FxRates, RegionPrice } from '@shared/types';
 
 const fx: FxRates = { base: 'USD', rates: { USD: 1, MXN: 20, GBP: 0.8, EUR: 0.9, JPY: 150 }, updatedAt: 0 };
@@ -132,5 +133,29 @@ describe('regions', () => {
 describe('matching edge cases', () => {
   it("doesn't drop letters that look like articles mid-title", () => {
     expect(titleKey('Pokémon Legends: Z-A')).not.toBe(titleKey('Pokémon Legends: Z'));
+  });
+});
+
+describe('eShop cards', () => {
+  it('lists card values smallest first, marking digital-only ones', () => {
+    const range = { countries: ['JP'], currency: 'JPY', amounts: [9000, 1000, 3000], digitalOnly: [5000, 3000], source: '', checked: '' };
+    expect(cardValues(range)).toEqual([
+      { amount: 1000, digitalOnly: false },
+      { amount: 3000, digitalOnly: false },
+      { amount: 5000, digitalOnly: true },
+      { amount: 9000, digitalOnly: false },
+    ]);
+  });
+
+  it('links to Eneba’s own search for a card', () => {
+    expect(enebaSearchUrl(3000, 'JPY')).toBe('https://www.eneba.com/store/gift-cards?text=Nintendo%20eShop%203000%20JPY');
+  });
+
+  it('only lists countries whose card values were confirmed, with a source', () => {
+    for (const range of ESHOP_CARDS) {
+      expect(range.amounts.length + (range.digitalOnly?.length ?? 0)).toBeGreaterThan(0);
+      expect(range.source).toMatch(/^https:\/\//);
+      for (const code of range.countries) expect(cardsFor(code)).toBe(range);
+    }
   });
 });
