@@ -12,3 +12,7 @@ expo-env.d.ts
 server/node_modules/
 server/data/
 server/dist/
+.gamely-local.json
+# Firebase service account keys are secret: upload them to Expo, never commit them
+*firebase-adminsdk*.json
+server/data/update.log*

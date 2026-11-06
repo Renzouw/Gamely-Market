@@ -1,6 +1,7 @@
 // Build the installable app in Expo's cloud (free plan works), then install it from the link it prints.
 //   npm run build:android   an APK you install from a link on your phone
 //   npm run build:ios       needs a paid Apple Developer account
+import { applyLocalConfig } from './local-config.mjs';
 import { run } from './run.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,10 +18,17 @@ if (eas(['whoami'], { stdio: 'ignore' }).status !== 0) {
   if (eas(['login']).status !== 0) process.exit(1);
 }
 
+applyLocalConfig({ quiet: true }); // puts back a project link saved earlier
 const app = JSON.parse(readFileSync(join(root, 'app.json'), 'utf8'));
 if (!app.expo?.extra?.eas?.projectId) {
   console.log('\n> Linking this project to your Expo account (one time)');
   if (eas(['init']).status !== 0) process.exit(1);
+}
+
+// Saves the project link from eas init, and turns on Android push if google-services.json is here
+const { hasFirebase } = applyLocalConfig();
+if (target === 'android' && !hasFirebase) {
+  console.log('\n(No google-services.json in this folder, so this build can\'t get push notifications on Android.\n Everything else works. See "Push notifications on Android" in README.md to add it.)');
 }
 
 if (target === 'ios') {

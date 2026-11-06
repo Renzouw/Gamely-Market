@@ -2,6 +2,7 @@
 //   npm run autostart          turn it on (and start the server now)
 //   npm run autostart:off      turn it off (and stop the server)
 //   npm run autostart:status   is it set up, and is it running?
+//   node scripts/autostart.mjs restart   rebuild and restart it (used by npm run update)
 //
 // Windows: a hidden launcher in your Startup folder (no console window).
 // macOS:   a LaunchAgent that also restarts the server if it crashes.
@@ -61,9 +62,13 @@ function stopRunning() {
     } catch {
       // already gone
     }
+    // Wait up to 5 seconds for it to let go of the port
+    for (let i = 0; i < 50 && runningPid() === pid; i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
   rmSync(pidFile, { force: true });
 }
+
+const installedPath = () => (os === 'win32' ? windowsLauncher : os === 'darwin' ? macPlist : linuxUnit);
 
 const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -162,8 +167,28 @@ function off() {
   say('✓ Auto-start is off. Start the server by hand any time with "npm run server".');
 }
 
+function restart() {
+  // Only the background server is restarted. "npm run server" reloads by itself when files change.
+  if (!existsSync(installedPath())) {
+    say('Auto-start is off, so there is no background server to restart.');
+    return;
+  }
+  build();
+  if (os === 'win32') {
+    stopRunning();
+    spawn('wscript.exe', [windowsLauncher], { detached: true, stdio: 'ignore' }).unref();
+  } else if (os === 'darwin') {
+    const r = spawnSync('launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${LABEL}`], { stdio: 'inherit' });
+    if (r.status !== 0) fail('launchctl could not restart the server.');
+  } else {
+    const r = spawnSync('systemctl', ['--user', 'restart', 'gamely-server.service'], { stdio: 'inherit' });
+    if (r.status !== 0) fail('systemctl could not restart the server.');
+  }
+  say('✓ Restarted the server with the new version');
+}
+
 function status() {
-  const installed = existsSync(os === 'win32' ? windowsLauncher : os === 'darwin' ? macPlist : linuxUnit);
+  const installed = existsSync(installedPath());
   const pid = runningPid();
   say(`Auto-start: ${installed ? 'on' : 'off'}`);
   say(`Server:     ${pid ? `running (process ${pid})` : 'not running'}`);
@@ -175,4 +200,5 @@ function status() {
 
 if (action === 'on') on();
 else if (action === 'off') off();
+else if (action === 'restart') restart();
 else status();

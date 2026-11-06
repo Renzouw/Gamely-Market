@@ -91,13 +91,26 @@ The server runs as a single precompiled Node process: about 80 to 100 MB of RAM 
 
 It only runs while the PC is awake. If the PC sleeps, the phone uses phone-only mode until it wakes.
 
+### Keeping this folder up to date
+
+```bash
+npm run autoupdate          # check GitHub every 30 minutes and pull in new changes
+npm run update              # or update right now, by hand
+npm run autoupdate:status   # is it on, and what did it last pull in?
+npm run autoupdate:off
+```
+
+Each check runs in the background with no window (Task Scheduler on Windows, a LaunchAgent on macOS, a systemd timer on Linux; no admin rights). When there's something new it pulls it in, installs any new packages, and rebuilds and restarts the background server if server code changed. If `npm start` is running, the app reloads by itself. The APK on your phone only changes when you build a new one.
+
+It only fast-forwards, so it never throws away work: if you've edited project files or made your own commits in this folder, it skips the update and says why in `server/data/update.log`. Your `.env` files, the server's database, `google-services.json` and your Expo project link are left alone. (The project link that `eas init` writes into `app.json` is kept in `.gamely-local.json` and put back after every update.)
+
 ### Server
 
 ```bash
 cd server
 npm install
 npm run dev          # API on :8787, jobs start immediately
-npm test             # 68 tests, including a full price-change-to-push run
+npm test             # 70 tests, including a full price-change-to-push run
 npx tsx scripts/loadtest.ts   # 15,000 games x 18 countries, 3,000 users, in memory
 ```
 
@@ -114,7 +127,7 @@ npm run lint
 npm run typecheck
 ```
 
-Push alerts need a real phone and an EAS project ID in `app.json` (`expo.extra.eas.projectId`, from `npx eas-cli init`), then a development or production build (`eas build`). Expo Go is fine for everything else.
+Push alerts need a real phone and an installed build (`npm run build:android`, which links the Expo project for you). Android also needs Firebase, below. Expo Go is fine for everything else.
 
 ### Install on your phone
 
@@ -124,6 +137,21 @@ npm run build:ios       # needs a paid Apple Developer account
 ```
 
 The first run asks you to log in to Expo and links the project. When it finishes, open the link on your phone to install. Then in the app, go to Settings › Gamely server and enter the address `npm run setup` printed. Without it, the app runs in phone-only mode.
+
+### Push notifications on Android
+
+Android delivers push through Google's Firebase Cloud Messaging, so Expo needs two things from a free Firebase project. Both are one-time.
+
+1. **Create the Firebase project.** At [console.firebase.google.com](https://console.firebase.google.com), add a project (Google Analytics isn't needed). Then add an Android app to it with the package name `com.gamely.market`.
+2. **Download `google-services.json`** when Firebase offers it (or later from Project settings › Your apps) and put it in the project folder, next to `app.json`. The build picks it up on its own. This file is app configuration, not a secret.
+3. **Give Expo permission to send.** In Firebase, open Project settings › Service accounts and click *Generate new private key*. That downloads a JSON key, which *is* a secret: don't put it in the project folder or share it. Upload it to Expo, either in the terminal:
+   ```bash
+   npx eas-cli@latest credentials
+   ```
+   (choose Android, then the build profile, then the Google Service Account key for push notifications, FCM V1, and upload the file), or on expo.dev under your project › Credentials › Android. Once it's uploaded you can delete the downloaded key.
+4. **Build again** with `npm run build:android` and install the new APK. Firebase is built into the app, so the old APK can't get pushes.
+
+Then in the app, turn on alerts in Settings. If a test alert doesn't arrive, `npm run autostart:status` shows the server's last log lines, including push errors.
 
 ### Americas catalog
 
@@ -147,7 +175,7 @@ DESIGN.md           colours, type, components and motion
 
 ## Known limits
 
-- **Not yet run against the live stores.** The development sandbox couldn't reach Nintendo, Steam, the ECB or Expo, so the adapters are written to these services' documented and historically observed responses and tested with hand-written sample responses, plus a full local run against a fake store. The first live run may turn up a renamed field; each adapter keeps its field names in one place.
+- **Lightly tested against the live stores.** The first live run on a real PC fetched over 5,000 prices with no errors, but most testing used sample responses and a fake store, because the development sandbox can't reach Nintendo, Steam, the ECB or Expo. If a store renames a field, each adapter keeps its field names in one place.
 - **Hong Kong and Korea eShops** use separate catalogs and aren't covered yet.
 - **Steam regional prices are for comparison.** Steam charges your account country's price, and the app says so.
 

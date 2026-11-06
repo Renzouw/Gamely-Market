@@ -61,6 +61,10 @@
     "autostart": "node scripts/autostart.mjs on",
     "autostart:off": "node scripts/autostart.mjs off",
     "autostart:status": "node scripts/autostart.mjs status",
+    "update": "node scripts/update.mjs",
+    "autoupdate": "node scripts/autoupdate.mjs on",
+    "autoupdate:off": "node scripts/autoupdate.mjs off",
+    "autoupdate:status": "node scripts/autoupdate.mjs status",
     "build:android": "node scripts/build-app.mjs android",
     "build:ios": "node scripts/build-app.mjs ios"
   },
