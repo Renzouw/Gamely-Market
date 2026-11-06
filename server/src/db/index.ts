@@ -33,7 +33,53 @@ const INDEXES = [
   'CREATE UNIQUE INDEX IF NOT EXISTS devices_push_token ON devices(push_token) WHERE push_token IS NOT NULL',
 ];
 
+/**
+ * Tables first created with a hidden row ID, rebuilt keyed by their primary key alone
+ * (WITHOUT ROWID). The old layout stored that key twice, once in the table and once in
+ * a separate index: about 35 MB on a full database, and an extra write per change.
+ */
+const COMPACT = ['prices', 'price_history'];
+
+/** No longer used: lowest prices are worked out from price_history (store.ts lowsFor). */
+const DROPPED_TABLES = ['lows'];
+
+function rebuildCompact(db: DatabaseSync): boolean {
+  let rebuilt = false;
+  for (const table of COMPACT) {
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as { sql: string } | undefined;
+    if (!row || /WITHOUT ROWID/i.test(row.sql)) continue;
+    const ddl = SCHEMA.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\) WITHOUT ROWID;`))?.[0];
+    if (!ddl) throw new Error(`No compact layout for ${table}`);
+    const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name).join(', ');
+    db.exec(`DROP TABLE IF EXISTS ${table}_compact`);
+    // Foreign keys can't be switched inside a transaction, and every row was checked when first written
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      tx(db, () => {
+        db.exec(ddl.replace(`IF NOT EXISTS ${table} `, `${table}_compact `));
+        db.exec(`INSERT INTO ${table}_compact (${cols}) SELECT ${cols} FROM ${table}`);
+        db.exec(`DROP TABLE ${table}`);
+        db.exec(`ALTER TABLE ${table}_compact RENAME TO ${table}`);
+      });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+    rebuilt = true;
+  }
+  return rebuilt;
+}
+
 function migrate(db: DatabaseSync) {
+  let shrink = rebuildCompact(db);
+  for (const table of DROPPED_TABLES) {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) {
+      db.exec(`DROP TABLE ${table}`);
+      shrink = true;
+    }
+  }
+  // Hand the freed space back to the disk (once, right after the change above)
+  if (shrink) db.exec('VACUUM');
+
   for (const [table, column, ddl] of COLUMNS) {
     const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);

@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS prices (
   checked_at    INTEGER NOT NULL,
   changed_at    INTEGER NOT NULL,
   PRIMARY KEY (game_id, country)
-);
+) WITHOUT ROWID;
 
 -- One row each time a price changes, so history stays compact
 CREATE TABLE IF NOT EXISTS price_history (
@@ -85,17 +85,7 @@ CREATE TABLE IF NOT EXISTS price_history (
   regular       REAL NOT NULL,
   discount      INTEGER NOT NULL,
   PRIMARY KEY (game_id, country, t)
-);
-
--- Lowest price ever seen per region, in that region's currency
-CREATE TABLE IF NOT EXISTS lows (
-  game_id       TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  country       TEXT NOT NULL,
-  currency      TEXT NOT NULL,
-  price         REAL NOT NULL,
-  at            INTEGER NOT NULL,
-  PRIMARY KEY (game_id, country)
-);
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS fx (
   currency      TEXT PRIMARY KEY,

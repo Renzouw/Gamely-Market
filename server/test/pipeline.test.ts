@@ -6,7 +6,7 @@ import { syncEuCatalog } from '../src/ingest/catalog';
 import { refreshSwitchPrices } from '../src/ingest/prices';
 import { queueAlertsForChanges } from '../src/alerts/run';
 import { dispatch } from '../src/push/dispatch';
-import { applyPrice, removePrice } from '../src/store';
+import { applyPrice, lowsFor, removePrice } from '../src/store';
 
 /**
  * End to end with a fake store: catalog sync, price refresh, change
@@ -146,8 +146,13 @@ describe('pipeline', () => {
     expect(c?.newLow).toBe(true);
     applyPrice(db, 'g', base, 4);
     expect(all(db, "SELECT t FROM price_history WHERE game_id = 'g' ORDER BY t").map((r: any) => r.t)).toEqual([1, 3, 4]);
-    expect(all<{ price: number }>(db, "SELECT price FROM lows WHERE game_id = 'g'")[0].price).toBe(20);
-    expect(removePrice(db, 'g', 'GB')?.before?.regular).toBe(40);
+    expect(lowsFor(db, ['g']).get('g')).toEqual([{ country: 'GB', currency: 'GBP', price: 20, at: 3 }]);
+    // A second sale at the same price isn't a new low
+    expect(applyPrice(db, 'g', { ...base, sale: { amount: 20, currency: 'GBP' }, discountPercent: 50 }, 5)?.newLow).toBe(false);
+    // A change of currency starts the lowest afresh, and isn't a new low by itself
+    expect(applyPrice(db, 'g', { country: 'GB', regular: { amount: 10, currency: 'EUR' }, discountPercent: 0 }, 6)?.newLow).toBe(false);
+    expect(lowsFor(db, ['g']).get('g')).toEqual([{ country: 'GB', currency: 'EUR', price: 10, at: 6 }]);
+    expect(removePrice(db, 'g', 'GB')?.before?.regular).toBe(10);
   });
 
   it('shows an expired sale at the regular price before the next refresh', async () => {

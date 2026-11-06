@@ -262,6 +262,9 @@ export function applyPrice(db: Db, gameId: string, p: RegionPrice, now = Date.no
   );
 
   const current = sale ?? p.regular.amount;
+  // Read the lowest so far before this price joins the history
+  const low = before && before.currency === after.currency ? lowSoFar(db, gameId, p.country, after.currency) : undefined;
+  const newLow = low !== undefined && current < low - 0.005;
   const priceMoved = !before || before.currency !== after.currency || !same(before.sale ?? before.regular, current) || !same(before.regular, after.regular);
   if (priceMoved) {
     run(
@@ -275,15 +278,6 @@ export function applyPrice(db: Db, gameId: string, p: RegionPrice, now = Date.no
       after.regular,
       after.discount,
     );
-  }
-
-  const low = get<{ price: number; currency: string }>(db, 'SELECT price, currency FROM lows WHERE game_id = ? AND country = ?', gameId, p.country);
-  let newLow = false;
-  if (!low || low.currency !== after.currency) {
-    run(db, 'INSERT OR REPLACE INTO lows (game_id, country, currency, price, at) VALUES (?, ?, ?, ?, ?)', gameId, p.country, after.currency, current, now);
-  } else if (current < low.price - 0.005) {
-    run(db, 'UPDATE lows SET price = ?, at = ? WHERE game_id = ? AND country = ?', current, now, gameId, p.country);
-    newLow = true;
   }
 
   return { gameId, country: p.country, before, after, newLow };
@@ -343,17 +337,46 @@ function saleFlagsFor(db: Db, id: string, nowIso: string) {
   }
 }
 
+/**
+ * Lowest price seen in one country, in its current currency: only history since the
+ * country last priced in another currency counts. Delisting markers don't count.
+ */
+function lowSoFar(db: Db, gameId: string, country: string, currency: string): number | undefined {
+  const r = get<{ low: number | null }>(
+    db,
+    `SELECT MIN(price) AS low FROM price_history
+     WHERE game_id = ? AND country = ? AND currency = ? AND discount >= 0
+       AND t > COALESCE((SELECT MAX(t) FROM price_history WHERE game_id = ? AND country = ? AND currency <> ?), 0)`,
+    gameId,
+    country,
+    currency,
+    gameId,
+    country,
+    currency,
+  );
+  return r?.low ?? undefined;
+}
+
+/** Lowest price ever seen per country (and when), in that country's latest currency. */
 export function lowsFor(db: Db, ids: string[]) {
   const out = new Map<string, { country: string; currency: string; price: number; at: number }[]>();
   if (!ids.length) return out;
-  for (const r of all<{ game_id: string; country: string; currency: string; price: number; at: number }>(
+  const lows = new Map<string, { gameId: string; country: string; currency: string; price: number; at: number }>();
+  for (const r of all<{ game_id: string; country: string; t: number; currency: string; price: number }>(
     db,
-    `SELECT * FROM lows WHERE game_id IN (${placeholders(ids.length)})`,
+    `SELECT game_id, country, t, currency, price FROM price_history
+     WHERE game_id IN (${placeholders(ids.length)}) AND discount >= 0 ORDER BY game_id, country, t`,
     ...ids,
   )) {
-    const list = out.get(r.game_id) ?? [];
-    list.push({ country: r.country, currency: r.currency, price: r.price, at: r.at });
-    out.set(r.game_id, list);
+    const k = `${r.game_id}|${r.country}`;
+    const l = lows.get(k);
+    // A new currency starts afresh; otherwise only a lower price counts, so the earliest of equal lows stays
+    if (!l || l.currency !== r.currency || r.price < l.price - 0.005) lows.set(k, { gameId: r.game_id, country: r.country, currency: r.currency, price: r.price, at: r.t });
+  }
+  for (const l of lows.values()) {
+    const list = out.get(l.gameId) ?? [];
+    list.push({ country: l.country, currency: l.currency, price: l.price, at: l.at });
+    out.set(l.gameId, list);
   }
   return out;
 }
