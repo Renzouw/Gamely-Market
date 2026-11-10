@@ -1,7 +1,7 @@
 export type Platform = 'switch2' | 'switch' | 'steam';
 
 /** Nintendo eShops share game IDs (NSUIDs) inside these groups. */
-/** Nintendo's ID groups ("sea" is Southeast Asia: the Philippines, with Singapore, Malaysia and Thailand sharing its IDs), plus Steam */
+/** Nintendo's ID groups ("sea" is Southeast Asia: the Philippines, Singapore, Malaysia and Thailand share its IDs), plus Steam */
 export type ShopGroup = 'americas' | 'europe' | 'japan' | 'hongkong' | 'korea' | 'sea' | 'steam';
 
 export interface Money {

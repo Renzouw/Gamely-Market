@@ -117,15 +117,23 @@ describe('regions', () => {
     expect(guessHome('AT', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
   });
 
-  it('adds Hong Kong and Korea only to region lists that were never narrowed', () => {
-    const before = DEFAULT_SWITCH_REGIONS.filter((c) => c !== 'HK' && c !== 'KR');
-    expect(withNewRegions(before).slice(-2)).toEqual(['HK', 'KR']);
-    expect(withNewRegions(['GB', 'JP'])).toEqual(['GB', 'JP']);
-    // A list from before the Philippines opened gains it the same way
-    const beforePh = DEFAULT_SWITCH_REGIONS.filter((c) => c !== 'PH');
-    expect(withNewRegions(beforePh)).toContain('PH');
-    expect(withNewRegions(['US', 'JP', 'HK'])).not.toContain('PH');
+  it('adds new regions only to region lists that were never narrowed', () => {
+    const sea = ['PH', 'SG', 'MY', 'TH'];
+    // Saved before Hong Kong and Korea: every later batch joins, in order
+    const v4 = DEFAULT_SWITCH_REGIONS.filter((c) => !['HK', 'KR', ...sea].includes(c));
+    expect(withNewRegions(v4, 4).slice(-6)).toEqual(['HK', 'KR', ...sea]);
+    // Saved with the Philippines: Singapore, Malaysia and Thailand join
+    const v6 = DEFAULT_SWITCH_REGIONS.filter((c) => !['SG', 'MY', 'TH'].includes(c));
+    expect(withNewRegions(v6, 6).slice(-3)).toEqual(['SG', 'MY', 'TH']);
+    // Someone who unticked the Philippines after it arrived doesn't get it back
+    const noPh = v6.filter((c) => c !== 'PH');
+    expect(withNewRegions(noPh, 6)).toEqual(noPh);
+    // A narrowed list stays as it is
+    expect(withNewRegions(['GB', 'JP'], 4)).toEqual(['GB', 'JP']);
+    // Up to date: nothing changes
+    expect(withNewRegions(DEFAULT_SWITCH_REGIONS, 7)).toEqual(DEFAULT_SWITCH_REGIONS);
     expect(guessHome('HK', 'HKD')).toEqual({ region: 'HK', currency: 'HKD' });
+    expect(guessHome('SG', 'SGD')).toEqual({ region: 'SG', currency: 'SGD' });
   });
 
   it('picks a Steam store country', () => {

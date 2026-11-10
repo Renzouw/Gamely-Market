@@ -49,21 +49,39 @@ export const SWITCH_REGIONS: Region[] = [
   { code: 'JP', name: 'Japan', flag: '🇯🇵', currency: 'JPY', group: 'japan', note: 'Japanese payment methods or gift cards' },
   { code: 'HK', name: 'Hong Kong', flag: '🇭🇰', currency: 'HKD', group: 'hongkong' },
   { code: 'KR', name: 'South Korea', flag: '🇰🇷', currency: 'KRW', group: 'korea' },
-  // Southeast Asia (opened 2026-11-10). Singapore, Malaysia and Thailand share these IDs and could join with one line each
+  // Southeast Asia shares one set of game IDs (the Philippines opened 2026-11-10)
   { code: 'PH', name: 'Philippines', flag: '🇵🇭', currency: 'PHP', group: 'sea', note: 'Philippine card and billing address' },
+  { code: 'SG', name: 'Singapore', flag: '🇸🇬', currency: 'SGD', group: 'sea' },
+  { code: 'MY', name: 'Malaysia', flag: '🇲🇾', currency: 'MYR', group: 'sea' },
+  { code: 'TH', name: 'Thailand', flag: '🇹🇭', currency: 'THB', group: 'sea' },
 ];
 
-/** Regions added after the first release. */
-export const NEW_SWITCH_REGIONS = ['HK', 'KR', 'PH'];
+/**
+ * Regions added after the first release, by the settings version that
+ * brought them. A new batch gets a new entry (and the settings version goes up).
+ */
+export const REGION_ADDITIONS: { version: number; codes: string[] }[] = [
+  { version: 5, codes: ['HK', 'KR'] },
+  { version: 6, codes: ['PH'] },
+  { version: 7, codes: ['SG', 'MY', 'TH'] },
+];
 
 /**
- * A saved region list from before the new regions existed. If it had every
- * older region ticked, it was never narrowed, so the new ones join it. A
- * narrowed list was a choice and stays as it is.
+ * Bring a saved region list (from settings version `from`) up to date. For
+ * each batch added since: if the list had every region that existed before
+ * that batch, it was never narrowed, so the batch joins it. A narrowed list
+ * was a choice and stays as it is, and so does a region someone unticked
+ * after it was added.
  */
-export function withNewRegions(saved: string[]): string[] {
-  const older = SWITCH_REGIONS.map((r) => r.code).filter((c) => !NEW_SWITCH_REGIONS.includes(c));
-  return older.every((c) => saved.includes(c)) ? [...new Set([...saved, ...NEW_SWITCH_REGIONS])] : saved;
+export function withNewRegions(saved: string[], from: number): string[] {
+  let out = saved;
+  for (const step of REGION_ADDITIONS) {
+    if (from >= step.version) continue;
+    const later = new Set(REGION_ADDITIONS.filter((s) => s.version >= step.version).flatMap((s) => s.codes));
+    const existed = SWITCH_REGIONS.map((r) => r.code).filter((c) => !later.has(c));
+    if (existed.every((c) => out.includes(c))) out = [...new Set([...out, ...step.codes])];
+  }
+  return out;
 }
 
 /** Steam ties prices to your account country, so this is a comparison view. */

@@ -83,7 +83,7 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'gamely.settings',
       storage: persistStorage,
-      version: 6,
+      version: 7,
       migrate: (old, version) => {
         const s = {
           alertsPrompted: false,
@@ -97,8 +97,8 @@ export const useSettings = create<SettingsState>()(
           serverUrl: '',
           ...(old as object),
         } as SettingsState;
-        // Version 5 added Hong Kong and South Korea, version 6 the Philippines
-        if (version < 6 && Array.isArray(s.switchRegions)) s.switchRegions = withNewRegions(s.switchRegions);
+        // Regions added since this copy was saved (see REGION_ADDITIONS)
+        if (Array.isArray(s.switchRegions)) s.switchRegions = withNewRegions(s.switchRegions, version);
         return s;
       },
     },
