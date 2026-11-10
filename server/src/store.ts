@@ -5,7 +5,7 @@ import { all, get, placeholders, run, tx, type Db } from './db';
 
 /** Nintendo's ID groups: games keep one NSUID per group. */
 export type Group = Exclude<ShopGroup, 'steam'>;
-export const GROUPS: Group[] = ['americas', 'europe', 'japan', 'hongkong', 'korea'];
+export const GROUPS: Group[] = ['americas', 'europe', 'japan', 'hongkong', 'korea', 'sea'];
 
 export interface GameRow {
   id: string;

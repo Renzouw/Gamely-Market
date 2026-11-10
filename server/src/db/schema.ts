@@ -29,7 +29,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS games_steam ON games(steam_app_id) WHERE steam
 
 -- Nintendo gives a game a different ID in each regional group
 CREATE TABLE IF NOT EXISTS game_ids (
-  grp           TEXT NOT NULL,             -- americas | europe | japan | hongkong | korea
+  grp           TEXT NOT NULL,             -- americas | europe | japan | hongkong | korea | sea
   nsuid         TEXT NOT NULL,
   game_id       TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   match_method  TEXT NOT NULL,             -- source | product_code | application_id | title_publisher | title_date
@@ -40,7 +40,7 @@ CREATE INDEX IF NOT EXISTS game_ids_game ON game_ids(game_id);
 -- Japan, Hong Kong and Korea list games in their own languages, so we keep
 -- their catalogs here and link games by product code instead of by title
 CREATE TABLE IF NOT EXISTS region_catalog (
-  grp           TEXT NOT NULL,             -- japan | hongkong | korea
+  grp           TEXT NOT NULL,             -- japan | hongkong | korea | sea
   nsuid         TEXT NOT NULL,
   platform      TEXT NOT NULL,             -- switch2 | switch
   code_key      TEXT NOT NULL,             -- hardware + product code core, e.g. "BEEAAAC"

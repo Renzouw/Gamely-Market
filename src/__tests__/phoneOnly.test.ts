@@ -189,7 +189,7 @@ describe('phone-only prices outside Europe', () => {
       { europe: '70010000000127', links: { japan: '70010000000828' } },
       { europe: '70010000099999', links: {} }, // no matches: left out
     ]);
-    expect(text).toBe('0000096810,0000096809,0000096306,0000096812,0000096811\n0000000127,,0000000828,,');
+    expect(text).toBe('0000096810,0000096809,0000096306,0000096812,0000096811\n0000000127,,0000000828');
     expect(decodeLinks(text).get('70010000000127')).toEqual({ japan: '70010000000828' });
   });
 

@@ -100,7 +100,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     ).map((r) => r.id);
     await syncRegionCatalogs(db);
     const linked = await linkRegions(db);
-    log(`regions: ${linked.length} games newly linked in Japan, Hong Kong or Korea`);
+    log(`regions: ${linked.length} games newly linked in Japan, Hong Kong, Korea or Southeast Asia`);
     await refresh([...new Set([...usUnpriced, ...linked])]);
     return !failedSince('nintendo-eu-catalog', t0);
   }

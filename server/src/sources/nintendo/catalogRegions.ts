@@ -25,6 +25,11 @@ export async function fetchJpPage(page: number): Promise<{ entries: RegionEntry[
   return parseJpResponse(await getJson<JpResponse>(`${config.upstream.nintendoJpSearch}?${qs(jpCatalogQuery(page))}`));
 }
 
+/** One page (300 games) of Southeast Asia's downloadable games, newest first. Same format as Japan. */
+export async function fetchSeaPage(page: number): Promise<{ entries: RegionEntry[]; total: number; count: number }> {
+  return parseJpResponse(await getJson<JpResponse>(`${config.upstream.nintendoSeaSearch}?${qs(jpCatalogQuery(page))}`));
+}
+
 /** Every game Nintendo's Hong Kong or Korea site lists, in two or three requests. */
 export async function fetchAsiaCatalog(grp: AsiaGroup): Promise<RegionEntry[]> {
   const url = asiaSearchUrl(grp, config.upstream.nintendoSite);

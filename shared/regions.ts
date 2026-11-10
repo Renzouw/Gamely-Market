@@ -49,10 +49,12 @@ export const SWITCH_REGIONS: Region[] = [
   { code: 'JP', name: 'Japan', flag: '🇯🇵', currency: 'JPY', group: 'japan', note: 'Japanese payment methods or gift cards' },
   { code: 'HK', name: 'Hong Kong', flag: '🇭🇰', currency: 'HKD', group: 'hongkong' },
   { code: 'KR', name: 'South Korea', flag: '🇰🇷', currency: 'KRW', group: 'korea' },
+  // Southeast Asia (opened 2026-11-10). Singapore, Malaysia and Thailand share these IDs and could join with one line each
+  { code: 'PH', name: 'Philippines', flag: '🇵🇭', currency: 'PHP', group: 'sea', note: 'Philippine card and billing address' },
 ];
 
 /** Regions added after the first release. */
-export const NEW_SWITCH_REGIONS = ['HK', 'KR'];
+export const NEW_SWITCH_REGIONS = ['HK', 'KR', 'PH'];
 
 /**
  * A saved region list from before the new regions existed. If it had every

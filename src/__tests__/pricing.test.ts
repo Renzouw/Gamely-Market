@@ -111,7 +111,8 @@ describe('regions', () => {
   it('guesses a home from the device locale', () => {
     expect(guessHome('MX', 'MXN')).toEqual({ region: 'MX', currency: 'MXN' });
     expect(guessHome('ZZ', null)).toEqual({ region: 'US', currency: 'USD' });
-    expect(guessHome('PH', 'PHP')).toEqual({ region: 'US', currency: 'PHP' });
+    // The Philippines has its own eShop since 2026-11-10
+    expect(guessHome('PH', 'PHP')).toEqual({ region: 'PH', currency: 'PHP' });
     expect(guessHome('IE', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
     expect(guessHome('AT', 'EUR')).toEqual({ region: 'DE', currency: 'EUR' });
   });
@@ -120,6 +121,10 @@ describe('regions', () => {
     const before = DEFAULT_SWITCH_REGIONS.filter((c) => c !== 'HK' && c !== 'KR');
     expect(withNewRegions(before).slice(-2)).toEqual(['HK', 'KR']);
     expect(withNewRegions(['GB', 'JP'])).toEqual(['GB', 'JP']);
+    // A list from before the Philippines opened gains it the same way
+    const beforePh = DEFAULT_SWITCH_REGIONS.filter((c) => c !== 'PH');
+    expect(withNewRegions(beforePh)).toContain('PH');
+    expect(withNewRegions(['US', 'JP', 'HK'])).not.toContain('PH');
     expect(guessHome('HK', 'HKD')).toEqual({ region: 'HK', currency: 'HKD' });
   });
 

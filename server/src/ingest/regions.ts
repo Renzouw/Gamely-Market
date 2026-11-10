@@ -2,13 +2,13 @@ import { productCore, titleKey } from '@shared/match';
 import { config } from '../config';
 import { all, get, run, tx, type Db } from '../db';
 import { JP_PAGE_SIZE } from '@shared/stores/nintendoRegions';
-import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, type RegionEntry } from '../sources/nintendo/catalogRegions';
+import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, fetchSeaPage, type RegionEntry } from '../sources/nintendo/catalogRegions';
 import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } from '../store';
 
 /**
  * Japan, Hong Kong and Korea list games in Japanese, Chinese or Korean, so
- * we never match them by title. A game is linked only when an exact ID
- * agrees:
+ * we never match them by title. Southeast Asia lists them in English but is
+ * matched the same way. A game is linked only when an exact ID agrees:
  *
  * 1. Its product code (hardware + 4-character core) matches exactly one
  *    listing in that region, and no other game of ours has the same code.
@@ -20,7 +20,7 @@ import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } 
  * Anything doubtful is left out, and the game page says so.
  */
 
-const REGION_GROUPS = ['japan', 'hongkong', 'korea'] as const;
+const REGION_GROUPS = ['japan', 'hongkong', 'korea', 'sea'] as const;
 type RegionGroup = (typeof REGION_GROUPS)[number];
 
 const DAY = 86400_000;
@@ -78,9 +78,9 @@ function dropMissing(db: Db, grp: RegionGroup, now: number) {
 }
 
 /**
- * Refresh the three catalogs. Hong Kong and Korea come whole in a few
- * requests. Japan is 50-odd heavy pages, so each run reads the newest few
- * and the whole list once a week.
+ * Refresh the regional catalogs. Hong Kong, Korea and Southeast Asia come
+ * whole in a few requests. Japan is 50-odd heavy pages, so each run reads
+ * the newest few and the whole list once a week.
  */
 export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void> {
   for (const grp of ['hongkong', 'korea'] as const) {
@@ -92,6 +92,26 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
     } catch (e) {
       sourceError(db, `nintendo-${grp}-catalog`, e);
     }
+  }
+
+  // Southeast Asia: about 4,000 games, 14 pages, so the whole list every run
+  try {
+    let seen = 0;
+    for (let page = 0; ; page++) {
+      const res = await fetchSeaPage(page);
+      saveEntries(db, 'sea', res.entries, now);
+      seen += res.entries.length;
+      if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
+    }
+    dropMissing(db, 'sea', now);
+    sourceOk(db, 'nintendo-sea-catalog', seen);
+    // The first time its catalog arrives, every game is looked at again, not only those due this week
+    if (seen && isOverdue(db, 'sea-first-link', 100 * 365 * DAY, now)) {
+      run(db, 'UPDATE games SET region_checked_at = NULL');
+      markRun(db, 'sea-first-link', now);
+    }
+  } catch (e) {
+    sourceError(db, 'nintendo-sea-catalog', e);
   }
 
   const full = isOverdue(db, 'jp-full-catalog', config.regions.fullEveryMs, now);
@@ -228,7 +248,7 @@ function idCounts(db: Db): { keys: Map<string, number>; apps: Map<string, number
 }
 
 /**
- * Link games to their Japan, Hong Kong and Korea listings. Each game is
+ * Link games to their Japan, Hong Kong, Korea and Southeast Asia listings. Each game is
  * looked at again after a week, so new listings get picked up. Returns the
  * games that gained a link.
  */
@@ -239,7 +259,7 @@ export async function linkRegions(db: Db, now = Date.now()): Promise<string[]> {
     db,
     `SELECT g.* FROM games g
      WHERE g.platform != 'steam' AND (g.region_checked_at IS NULL OR g.region_checked_at < ?)
-       AND (SELECT COUNT(*) FROM game_ids i WHERE i.game_id = g.id AND i.grp IN ('japan', 'hongkong', 'korea')) < 3
+       AND (SELECT COUNT(*) FROM game_ids i WHERE i.game_id = g.id AND i.grp IN (${REGION_GROUPS.map((x) => `'${x}'`).join(', ')})) < ${REGION_GROUPS.length}
      ORDER BY g.region_checked_at IS NOT NULL, EXISTS (SELECT 1 FROM watches w WHERE w.game_id = g.id) DESC,
        g.on_sale DESC, COALESCE(g.rank, 1e9)`,
     now - 7 * DAY,
@@ -275,7 +295,7 @@ export async function linkRegions(db: Db, now = Date.now()): Promise<string[]> {
         tx(db, () => attachNsuid(db, 'hongkong', hk.row!.nsuid, g.id, 'application_id'));
         have.add('hongkong');
         linked.add(g.id);
-        // Its product code finds the game in Japan and Korea, unless another game of ours already has that code
+        // Its product code finds the game in the other regions, unless another game of ours already has that code
         if (!counts.keys.has(hk.row.code_key)) {
           key = hk.row.code_key;
           counts.keys.set(key, 1);

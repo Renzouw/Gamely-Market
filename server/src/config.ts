@@ -16,6 +16,8 @@ export const config = {
     nintendoPrice: env.UPSTREAM_NINTENDO_PRICE ?? 'https://api.ec.nintendo.com/v1/price',
     nintendoEuSearch: env.UPSTREAM_NINTENDO_EU ?? 'https://searching.nintendo-europe.com/en/select',
     nintendoJpSearch: env.UPSTREAM_NINTENDO_JP ?? 'https://search.nintendo.jp/nintendo_soft/search.json',
+    /** Southeast Asia (the Philippines), on the same search as Japan */
+    nintendoSeaSearch: env.UPSTREAM_NINTENDO_SEA ?? 'https://search.nintendo.jp/nintendo_soft_ph/search.json',
     /** Nintendo's Hong Kong and Korea sites, for their software lists */
     nintendoSite: env.UPSTREAM_NINTENDO_SITE ?? 'https://www.nintendo.com',
     /** The web eShop, for application IDs on Hong Kong title pages */

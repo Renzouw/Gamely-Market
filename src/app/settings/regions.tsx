@@ -10,7 +10,7 @@ import { Text } from '../../theme/Text';
 const GROUPS: { id: string; label: string; groups: Region['group'][] }[] = [
   { id: 'americas', label: 'Americas', groups: ['americas'] },
   { id: 'europe', label: 'Europe, Oceania & South Africa', groups: ['europe'] },
-  { id: 'asia', label: 'Japan, Hong Kong & South Korea', groups: ['japan', 'hongkong', 'korea'] },
+  { id: 'asia', label: 'Asia', groups: ['japan', 'hongkong', 'korea', 'sea'] },
 ];
 
 function CheckRow({ label, detail, checked, onPress, first, locked }: { label: string; detail?: string; checked: boolean; onPress: () => void; first?: boolean; locked?: boolean }) {

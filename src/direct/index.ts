@@ -163,7 +163,7 @@ function countryPrices(country: string, nsuids: string[], signal?: AbortSignal):
  * Groups with their own IDs that only the server can match. The phone
  * prices them itself with IDs the server already found (state/links.ts).
  */
-const SERVER_MATCHED = ['americas', 'japan', 'hongkong', 'korea'] as const satisfies readonly Exclude<ShopGroup, 'steam'>[];
+const SERVER_MATCHED = ['americas', 'japan', 'hongkong', 'korea', 'sea'] as const satisfies readonly Exclude<ShopGroup, 'steam'>[];
 
 /** Countries this person compares in those groups. */
 function serverMatchedRegions(ctx: DirectContext) {
@@ -213,7 +213,7 @@ export async function directPrices(list: Pick<Game, 'key' | 'platform' | 'nsuids
       tasks.push(countryPrices(c, [...byNsuid.keys()], signal).then((m) => (m.forEach((p, id) => add(byNsuid.get(id), p)), true), () => false));
     }
   }
-  // Japan, Hong Kong, Korea: only for games the server already matched there
+  // Japan, Hong Kong, Korea, Southeast Asia: only for games the server already matched there
   for (const r of serverMatchedRegions(ctx)) {
     const ids = new Map<string, string>();
     for (const g of games) {

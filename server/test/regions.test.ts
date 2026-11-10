@@ -15,11 +15,14 @@ import { decodeLinks } from '@shared/links';
  * Fixtures are real responses saved on 2026-11-06, trimmed to a handful of
  * games: Japan's search, the Hong Kong and Korea software search, and the
  * part of three Hong Kong eShop title pages that names the application ID.
+ * ph-search.json is Southeast Asia's search, saved on 2026-11-10 (the day
+ * the Philippine eShop opened).
  */
 const fixture = (name: string) => readFileSync(join(__dirname, 'fixtures', name), 'utf8');
 const jp = JSON.parse(fixture('jp-search.json'));
 const hk = JSON.parse(fixture('hk-search.json'));
 const kr = JSON.parse(fixture('kr-search.json'));
+const ph = JSON.parse(fixture('ph-search.json'));
 
 // Real European catalog entries (trimmed). Bananza and both Tears of the
 // Kingdom entries have no product code; Odyssey has one.
@@ -49,6 +52,16 @@ describe('regional catalog parsing', () => {
     // The Bananza DLC set and the Edition upgrade share a code but aren't games
     expect(entries.some((e) => e.nsuid.startsWith('7007') || e.nsuid.startsWith('7005'))).toBe(false);
     expect(entries[0].releaseDate).toBe('2025-07-17');
+  });
+
+  it('reads Southeast Asia with the Japan reader: downloadable games only, keyed by platform', () => {
+    const { entries } = parseJpResponse(ph);
+    const byTitle = Object.fromEntries(entries.map((e) => [e.title, [e.nsuid, e.codeKey]]));
+    expect(byTitle['Donkey Kong Bananza']).toEqual(['70010000108853', 'BEEAAAC']);
+    expect(byTitle['Super Mario Odyssey™']).toEqual(['70010000107968', 'HACAAAC']);
+    expect(byTitle['The Legend of Zelda: Tears of the Kingdom – Nintendo Switch 2 Edition']).toEqual(['70010000108820', 'BEEAXN7']);
+    // Game cards (BEE_CARD, HAC_CARD) share the ID but aren't download listings
+    expect(entries.filter((e) => e.nsuid === '70010000108853')).toHaveLength(1);
   });
 
   it('reads Hong Kong and Korea, skipping unreleased placeholders', () => {
@@ -89,7 +102,7 @@ function fakeStore(url: string): Response {
   const u = new URL(url);
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   if (u.host === 'searching.nintendo-europe.com') return json({ response: { numFound: docs.length, docs } });
-  if (u.host === 'search.nintendo.jp') return json(jpData);
+  if (u.host === 'search.nintendo.jp') return json(u.pathname.startsWith('/nintendo_soft_ph/') ? ph : jpData);
   if (u.host === 'www.nintendo.com' && u.pathname === '/hk/api/search') return json(hk);
   if (u.host === 'www.nintendo.com' && u.pathname === '/kr/api/search') return json(kr);
   if (u.host === 'ec.nintendo.com') {
@@ -100,7 +113,7 @@ function fakeStore(url: string): Response {
   }
   if (u.host === 'api.ec.nintendo.com') {
     const country = u.searchParams.get('country')!;
-    const currency = { JP: 'JPY', HK: 'HKD', KR: 'KRW' }[country] ?? 'EUR';
+    const currency = { JP: 'JPY', HK: 'HKD', KR: 'KRW', PH: 'PHP' }[country] ?? 'EUR';
     return json({
       prices: u.searchParams.get('ids')!.split(',').map((id) => ({ title_id: Number(id), sales_status: 'onsale', regular_price: { currency, raw_value: country === 'KR' ? '79800' : '449' } })),
     });
@@ -129,7 +142,7 @@ async function syncAll() {
 describe('linking Japan, Hong Kong and Korea', () => {
   it('links Donkey Kong Bananza through its application ID, then its code', async () => {
     const linked = await syncAll();
-    expect(links('sw:eu:70010000096810')).toEqual({ europe: '70010000096810', hongkong: '70010000096812', japan: '70010000096306', korea: '70010000096811' });
+    expect(links('sw:eu:70010000096810')).toEqual({ europe: '70010000096810', hongkong: '70010000096812', japan: '70010000096306', korea: '70010000096811', sea: '70010000108853' });
     expect(all(db, "SELECT match_method FROM game_ids WHERE game_id = 'sw:eu:70010000096810' AND grp = 'hongkong'")).toEqual([{ match_method: 'application_id' }]);
     expect(linked).toContain('sw:eu:70010000096810');
   });
@@ -138,12 +151,12 @@ describe('linking Japan, Hong Kong and Korea', () => {
     await syncAll();
     // Japan and Hong Kong sell both; Korea's list has only the Switch game
     expect(links('sw:eu:70010000063715')).toEqual({ europe: '70010000063715', hongkong: '70010000063717', japan: '70010000063713', korea: '70010000063716' });
-    expect(links('sw:eu:70010000096822')).toEqual({ europe: '70010000096822', hongkong: '70010000096824', japan: '70010000096248' });
+    expect(links('sw:eu:70010000096822')).toEqual({ europe: '70010000096822', hongkong: '70010000096824', japan: '70010000096248', sea: '70010000108820' });
   });
 
   it('links by product code alone when Europe has one, with no page lookups', async () => {
     await syncAll();
-    expect(links('sw:eu:70010000000127')).toEqual({ europe: '70010000000127', hongkong: '70010000009372', japan: '70010000000828', korea: '70010000009372' });
+    expect(links('sw:eu:70010000000127')).toEqual({ europe: '70010000000127', hongkong: '70010000009372', japan: '70010000000828', korea: '70010000009372', sea: '70010000107968' });
     expect(titlePages).not.toContain('70010000009372');
   });
 
@@ -183,11 +196,11 @@ describe('linking Japan, Hong Kong and Korea', () => {
 
   it('prices the linked regions and stops calling them unmatched', async () => {
     await syncAll();
-    run(db, "INSERT INTO fx (currency, per_usd, source, as_of, fetched_at) VALUES ('USD',1,'ecb','2026-11-06',0), ('JPY',150,'ecb','2026-11-06',0), ('HKD',7.8,'ecb','2026-11-06',0), ('KRW',1400,'ecb','2026-11-06',0)");
-    await refreshSwitchPrices(db, ['sw:eu:70010000096810'], ['JP', 'HK', 'KR']);
-    const res = await createApp(db, {}).request('/v1/games/sw:eu:70010000096810?home=JP&currency=USD&regions=JP,HK,KR');
+    run(db, "INSERT INTO fx (currency, per_usd, source, as_of, fetched_at) VALUES ('USD',1,'ecb','2026-11-06',0), ('JPY',150,'ecb','2026-11-06',0), ('HKD',7.8,'ecb','2026-11-06',0), ('KRW',1400,'ecb','2026-11-06',0), ('PHP',58,'market','2026-11-06',0)");
+    await refreshSwitchPrices(db, ['sw:eu:70010000096810'], ['JP', 'HK', 'KR', 'PH']);
+    const res = await createApp(db, {}).request('/v1/games/sw:eu:70010000096810?home=PH&currency=USD&regions=JP,HK,KR,PH');
     const body = (await res.json()) as { prices: { country: string; regular: { amount: number; currency: string } }[]; unmatched: string[] };
-    expect(body.prices.map((p) => `${p.country} ${p.regular.amount} ${p.regular.currency}`).sort()).toEqual(['HK 449 HKD', 'JP 449 JPY', 'KR 79800 KRW']);
+    expect(body.prices.map((p) => `${p.country} ${p.regular.amount} ${p.regular.currency}`).sort()).toEqual(['HK 449 HKD', 'JP 449 JPY', 'KR 79800 KRW', 'PH 449 PHP']);
     expect(body.unmatched).toEqual([]);
   });
 
@@ -195,9 +208,25 @@ describe('linking Japan, Hong Kong and Korea', () => {
     await syncAll();
     const res = (await (await createApp(db, {}).request('/v1/links')).json()) as { rows: string; count: number };
     const links = decodeLinks(res.rows);
-    expect(links.get('70010000096810')).toEqual({ japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811' });
-    expect(links.get('70010000000127')).toEqual({ japan: '70010000000828', hongkong: '70010000009372', korea: '70010000009372' });
+    expect(links.get('70010000096810')).toEqual({ japan: '70010000096306', hongkong: '70010000096812', korea: '70010000096811', sea: '70010000108853' });
+    expect(links.get('70010000000127')).toEqual({ japan: '70010000000828', hongkong: '70010000009372', korea: '70010000009372', sea: '70010000107968' });
     expect(res.count).toBe(links.size);
+  });
+
+  it('still reads a copy of the matches saved before Southeast Asia existed', () => {
+    expect(decodeLinks('0000096810,0000096809,0000096306,0000096812,0000096811').get('70010000096810')).toEqual({
+      americas: '70010000096809',
+      japan: '70010000096306',
+      hongkong: '70010000096812',
+      korea: '70010000096811',
+    });
+  });
+
+  it('looks at every game again the first time Southeast Asia arrives, then only weekly', async () => {
+    await syncAll();
+    expect(all(db, 'SELECT COUNT(*) AS n FROM games WHERE region_checked_at IS NULL')).toEqual([{ n: 0 }]);
+    await syncRegionCatalogs(db);
+    expect(all(db, 'SELECT COUNT(*) AS n FROM games WHERE region_checked_at IS NULL')).toEqual([{ n: 0 }]);
   });
 
   it('keeps the old catalog when a store answers short', async () => {

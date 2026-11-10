@@ -36,6 +36,13 @@ const GAME_NSUID = /^7001\d{10}$/;
 /* ---------------------------------- Japan ---------------------------------- */
 
 export const NINTENDO_JP_SEARCH = 'https://search.nintendo.jp/nintendo_soft/search.json';
+/**
+ * Southeast Asia's eShop (the Philippines; Singapore, Malaysia and Thailand
+ * share its IDs) runs on the same search as Japan, with the same fields, so
+ * jpCatalogQuery and parseJpResponse read it too. Its titles are in English,
+ * but games are still linked by product code, like Japan.
+ */
+export const NINTENDO_SEA_SEARCH = 'https://search.nintendo.jp/nintendo_soft_ph/search.json';
 
 /**
  * The fields and filter values Nintendo Japan uses. If Nintendo changes

@@ -22,7 +22,7 @@ import { useWatchlist } from '../../state/watchlist';
 import { font, GUTTER, radius, space, useTheme } from '../../theme';
 import { Text } from '../../theme/Text';
 
-const GROUP_NAMES = { americas: 'the Americas', europe: 'Europe', japan: 'Japan', hongkong: 'Hong Kong', korea: 'South Korea' } as const;
+const GROUP_NAMES = { americas: 'the Americas', europe: 'Europe', japan: 'Japan', hongkong: 'Hong Kong', korea: 'South Korea', sea: 'the Philippines' } as const;
 
 /** "Japan", "Japan or Hong Kong", "Japan, Hong Kong or South Korea" */
 function listNames(groups: (keyof typeof GROUP_NAMES)[], joiner: 'and' | 'or'): string {

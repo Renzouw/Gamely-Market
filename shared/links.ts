@@ -3,14 +3,16 @@
  * can price Japan, Hong Kong, Korea and the Americas too. Matching needs
  * catalogs too big for a phone; the IDs it found are small.
  *
- * Compact text, one game per line: "eu,americas,japan,hongkong,korea".
+ * Compact text, one game per line: "eu,americas,japan,hongkong,korea,sea".
+ * New groups only ever go on the end, so a copy saved before one existed
+ * still reads (its lines are just shorter).
  * Full-game IDs all start with 7001, so that prefix is left off (10 digits
  * instead of 14). An empty field means no match in that group.
  */
 import type { ShopGroup } from './types';
 
 export type LinkGroup = Exclude<ShopGroup, 'steam' | 'europe'>;
-export const LINK_GROUPS: LinkGroup[] = ['americas', 'japan', 'hongkong', 'korea'];
+export const LINK_GROUPS: LinkGroup[] = ['americas', 'japan', 'hongkong', 'korea', 'sea'];
 export type GameLinks = Partial<Record<LinkGroup, string>>;
 
 const PREFIX = '7001';
@@ -20,7 +22,8 @@ const full = (id: string) => (id.length === 10 ? PREFIX + id : id);
 export function encodeLinks(rows: { europe: string; links: GameLinks }[]): string {
   return rows
     .filter((r) => LINK_GROUPS.some((g) => r.links[g]))
-    .map((r) => [short(r.europe), ...LINK_GROUPS.map((g) => short(r.links[g]))].join(','))
+    // Empty fields at the end are left off: most games have no match in the newest groups
+    .map((r) => [short(r.europe), ...LINK_GROUPS.map((g) => short(r.links[g]))].join(',').replace(/,+$/, ''))
     .join('\n');
 }
 
