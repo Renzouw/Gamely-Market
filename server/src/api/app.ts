@@ -15,6 +15,7 @@ import { searchSteam } from '../sources/steam';
 import { attachNsuid, gameIdForNsuid, getGame, lowsFor, nsuidsForGames, pricesFor, rowToGame, rowToPrice, upsertGame, type GameRow, type Group } from '../store';
 import { dailyBest, type HistoryRow } from '@shared/history';
 import { effectiveRegions, listDeals, searchGames } from './listings';
+import { listUpgrades } from './upgrades';
 import { refreshAndAlert } from '../alerts/run';
 import { activeEvents } from '../events/run';
 
@@ -205,6 +206,14 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
     if (!q.success) return c.json({ error: q.error.issues[0]?.message ?? 'Bad request' }, 400);
     c.header('Cache-Control', 'public, max-age=60');
     return c.json(listDeals(db, { ...q.data, regions: csv(c.req.query('regions')) }, readFx(db)));
+  });
+
+  // Switch 2 Editions with an upgrade pack: Edition vs Switch game + upgrade, per country
+  app.get('/v1/upgrades', (c) => {
+    const q = z.object({ home: country, currency }).safeParse(c.req.query());
+    if (!q.success) return c.json({ error: q.error.issues[0]?.message ?? 'Bad request' }, 400);
+    c.header('Cache-Control', 'public, max-age=60');
+    return c.json(listUpgrades(db, { ...q.data, regions: csv(c.req.query('regions')) }, readFx(db)));
   });
 
   app.get('/v1/games', async (c) => {

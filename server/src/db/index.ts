@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
+import { SWITCH_REGIONS } from '@shared/regions';
 import { SCHEMA } from './schema';
 
 export type Db = DatabaseSync;
@@ -69,7 +70,28 @@ function rebuildCompact(db: DatabaseSync): boolean {
   return rebuilt;
 }
 
+/**
+ * Europe used to list some Switch 2 Editions with the upgrade pack's ID first, and it was
+ * taken for the game's own: those games showed the upgrade's price in Europe's countries.
+ * Unhook those IDs from games that aren't the upgrade pack itself, and forget the prices
+ * and history they produced there (the next refresh prices the game properly).
+ */
+function dropMisfiledUpgradeIds(db: DatabaseSync) {
+  const rows = db.prepare("SELECT game_id, nsuid FROM game_ids WHERE grp = 'europe' AND nsuid LIKE '7005%' AND game_id NOT LIKE 'sw:eu:7005%'").all() as { game_id: string; nsuid: string }[];
+  if (!rows.length) return;
+  const europe = SWITCH_REGIONS.filter((r) => r.group === 'europe').map((r) => r.code);
+  const marks = europe.map(() => '?').join(',');
+  tx(db, () => {
+    for (const r of rows) {
+      db.prepare("DELETE FROM game_ids WHERE grp = 'europe' AND nsuid = ?").run(r.nsuid);
+      db.prepare(`DELETE FROM prices WHERE game_id = ? AND country IN (${marks})`).run(r.game_id, ...europe);
+      db.prepare(`DELETE FROM price_history WHERE game_id = ? AND country IN (${marks})`).run(r.game_id, ...europe);
+    }
+  });
+}
+
 function migrate(db: DatabaseSync) {
+  dropMisfiledUpgradeIds(db);
   let shrink = rebuildCompact(db);
   for (const table of DROPPED_TABLES) {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) {

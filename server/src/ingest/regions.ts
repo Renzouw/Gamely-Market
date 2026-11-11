@@ -239,7 +239,7 @@ async function hkByAppId(db: Db, g: GameRow, budget: Budget, now: number): Promi
 function idCounts(db: Db): { keys: Map<string, number>; apps: Map<string, number> } {
   const keys = new Map<string, number>();
   const apps = new Map<string, number>();
-  for (const g of all<Pick<GameRow, 'product_code' | 'code_key' | 'app_id' | 'platform'>>(db, "SELECT product_code, code_key, app_id, platform FROM games WHERE platform != 'steam'")) {
+  for (const g of all<Pick<GameRow, 'product_code' | 'code_key' | 'app_id' | 'platform'>>(db, "SELECT product_code, code_key, app_id, platform FROM games WHERE platform != 'steam' AND id NOT LIKE 'sw:eu:7005%'")) {
     const k = keyOf(g);
     if (k) keys.set(k, (keys.get(k) ?? 0) + 1);
     if (g.app_id) apps.set(`${g.platform}:${g.app_id}`, (apps.get(`${g.platform}:${g.app_id}`) ?? 0) + 1);
@@ -258,7 +258,7 @@ export async function linkRegions(db: Db, now = Date.now()): Promise<string[]> {
   const games = all<GameRow>(
     db,
     `SELECT g.* FROM games g
-     WHERE g.platform != 'steam' AND (g.region_checked_at IS NULL OR g.region_checked_at < ?)
+     WHERE g.platform != 'steam' AND g.id NOT LIKE 'sw:eu:7005%' AND (g.region_checked_at IS NULL OR g.region_checked_at < ?)
        AND (SELECT COUNT(*) FROM game_ids i WHERE i.game_id = g.id AND i.grp IN (${REGION_GROUPS.map((x) => `'${x}'`).join(', ')})) < ${REGION_GROUPS.length}
      ORDER BY g.region_checked_at IS NOT NULL, EXISTS (SELECT 1 FROM watches w WHERE w.game_id = g.id) DESC,
        g.on_sale DESC, COALESCE(g.rank, 1e9)`,

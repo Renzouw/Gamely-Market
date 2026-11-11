@@ -48,6 +48,8 @@ export interface Game {
   productCode?: string;
   /** Switch only: Nintendo's application ID, the same in every region */
   applicationId?: string;
+  /** Switch 2 Edition listings (Europe): the upgrade pack's ID, sold separately for owners of the Switch game */
+  upgradeNsuid?: string;
   /** Steam only */
   steamAppId?: number;
   /** Price in the region the listing came from, if the listing source included one */

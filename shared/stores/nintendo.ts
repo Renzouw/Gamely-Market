@@ -64,10 +64,19 @@ function https(url?: string): string | undefined {
   return url.startsWith('//') ? `https:${url}` : url.replace(/^http:/, 'https:');
 }
 
+/** Full games have IDs starting 7001; 7005 is add-on content (on a Switch 2 Edition, its upgrade pack). */
+const FULL_GAME = /^7001\d{10}$/;
+const ADD_ON = /^7005\d{10}$/;
+
 export function euDocToGame(doc: EuDoc): Game | undefined {
-  const nsuid = doc.nsuid_txt?.[0];
+  const ids = doc.nsuid_txt ?? [];
+  // A Switch 2 Edition is listed under two IDs, the full Edition and its upgrade pack, in no fixed
+  // order. The listing (and its price) is the full game's; the upgrade pack is kept alongside.
+  const nsuid = ids.find((id) => FULL_GAME.test(id)) ?? ids[0];
   if (!doc.title || !nsuid) return undefined;
+  const upgrade = FULL_GAME.test(nsuid) && euPlatform(doc) === 'switch2' ? ids.find((id) => ADD_ON.test(id)) : undefined;
   return {
+    ...(upgrade ? { upgradeNsuid: upgrade } : {}),
     key: `sw:eu:${nsuid}`,
     platform: euPlatform(doc),
     title: doc.title,

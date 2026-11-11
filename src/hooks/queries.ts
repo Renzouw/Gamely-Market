@@ -2,7 +2,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type Infi
 import { useIsFocused } from 'expo-router';
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { ApiActivity, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiWatch, DealSort, DirectoryOptions, WatchInput } from '@shared/api';
+import type { ApiActivity, ApiGame, ApiGameDetail, ApiList, ApiListItem, ApiStatus, ApiUpgradeList, ApiWatch, DealSort, DirectoryOptions, WatchInput } from '@shared/api';
 import { summarize, type PriceSummary } from '@shared/pricing';
 import { steamStoreCountry } from '@shared/regions';
 import type { Platform, RegionPrice } from '@shared/types';
@@ -165,6 +165,20 @@ export function useGameDetail(key: string) {
       if (hit) return { game: hit.game, prices: hit.prices, lows: [], history: [], trackedSince: 0, unmatched: [], stale: false, placeholder: true } as ApiGameDetail;
       return undefined;
     },
+  });
+}
+
+/** Switch 2 Editions with an upgrade pack, and what the Switch game + upgrade route saves. Server only. */
+export function useUpgrades() {
+  const p = usePrefs();
+  const { live, focused } = useScreenQuery();
+  return useQuery({
+    queryKey: ['upgrades', p.home, p.currency, p.switchRegions],
+    enabled: live === 'server',
+    subscribed: focused,
+    staleTime: 5 * 60_000,
+    gcTime: SHORT_GC,
+    queryFn: ({ signal }) => api<ApiUpgradeList>('/v1/upgrades', { query: { home: p.home, currency: p.currency, regions: p.switchRegions }, signal }),
   });
 }
 

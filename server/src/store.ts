@@ -156,7 +156,7 @@ export function matchCandidates(db: Db, platform: Platform, key: string, grp: Gr
   return all<GameRow>(
     db,
     `SELECT g.* FROM games g
-     WHERE g.platform = ? AND g.title_key = ?
+     WHERE g.platform = ? AND g.title_key = ? AND g.id NOT LIKE 'sw:eu:7005%'
        AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.game_id = g.id AND i.grp = ?)`,
     platform,
     key,

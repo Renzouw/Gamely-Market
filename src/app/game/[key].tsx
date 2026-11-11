@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Keyboard, Platform as RNPlatform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import type { AlertPrefs, ApiGame } from '@shared/api';
 import { currencyDigits, formatMoney, timeLeft } from '@shared/pricing';
+import { KIND_LABEL, listingKind } from '@shared/listing';
 import { eshopTitleUrl, regionLabel, switchRegion } from '@shared/regions';
 import type { ConvertedRegionPrice } from '@shared/types';
 import { errorText } from '../../api/client';
@@ -105,6 +106,7 @@ export default function GameScreen() {
 
   const g = d.game;
   const isSteam = g.platform === 'steam';
+  const kind = listingKind(g);
   const best = s.best;
   const placeholder = 'placeholder' in d;
   const homeIsBest = best && s.home && best.country === s.home.country;
@@ -168,6 +170,13 @@ export default function GameScreen() {
           <Text variant="footnote" tone="subtle" style={{ marginTop: space.xs }}>
             {[g.publisher, shortDate(g.releaseDate)].filter(Boolean).join(' · ')}
           </Text>
+          {kind !== 'game' ? (
+            <View style={{ marginTop: space.md }}>
+              <Fact tone="muted" icon={kind === 'upgrade' ? 'arrow-up-circle-outline' : 'people-outline'}>
+                {KIND_LABEL[kind].explain}
+              </Fact>
+            </View>
+          ) : null}
 
           <View style={styles.priceBlock}>
             {placeholder && !headline ? (

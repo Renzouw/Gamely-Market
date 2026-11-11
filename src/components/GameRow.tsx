@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import type { ApiGame, ApiPrice } from '@shared/api';
+import { KIND_LABEL, listingKind } from '@shared/listing';
 import { endsSoon, formatMoney, timeLeft } from '@shared/pricing';
 import { regionLabel } from '@shared/regions';
 import { usePriceSummary } from '../hooks/queries';
@@ -35,6 +36,9 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
   const saving = s.savingVsHome && s.savingVsHome >= 0.05 ? Math.round(s.savingVsHome * 100) : 0;
 
   const open = useCallback(() => router.push({ pathname: '/game/[key]', params: { key: game.key } }), [game.key]);
+  // Upgrade packs and Friend's Passes look like games in a list; say what they are
+  const kind = listingKind(game);
+  const tag = kind === 'game' ? undefined : KIND_LABEL[kind].tag;
   // A recycled row would keep the last game's sideways scroll: put it back to the start
   const tickerRef = useRef<ScrollViewInstance>(null);
   useEffect(() => tickerRef.current?.scrollTo({ x: 0, animated: false }), [game.key]);
@@ -47,6 +51,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
 
   const label = [
     game.title,
+    tag,
     best?.converted !== undefined ? `${formatMoney(best.converted, s.currency)}${region && !isSteam ? ` in ${region.name}` : ''}` : 'No price in your regions',
     best?.discountPercent ? `${best.discountPercent}% off` : undefined,
     showPlatform ? platformMeta[game.platform].label : undefined,
@@ -65,6 +70,11 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
           </Text>
           <View style={styles.meta}>
             {showPlatform ? <PlatformLabel platform={game.platform} dotOnly /> : null}
+            {tag ? (
+              <Text variant="caption" tone="muted" numberOfLines={1} style={[styles.tag, { borderColor: c.line }]}>
+                {tag}
+              </Text>
+            ) : null}
             {context ? (
               <Text variant="footnote" tone={context.tone} numberOfLines={1} style={{ flexShrink: 1 }}>
                 {context.text}
@@ -125,6 +135,7 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   price: { alignItems: 'flex-end', minWidth: 72, maxWidth: '36%', gap: 2, flexShrink: 0 },
   priceMeta: { flexDirection: 'row', gap: 6 },
+  tag: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, flexShrink: 0 },
   ticker: { gap: space.lg, paddingTop: space.sm },
   tick: { flexDirection: 'row', gap: 5 },
   rule: { height: StyleSheet.hairlineWidth, position: 'absolute', bottom: 0, right: 0 },

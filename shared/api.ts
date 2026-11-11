@@ -62,6 +62,39 @@ export interface DirectoryOptions {
   country?: string;
 }
 
+/**
+ * One country's prices for the two ways to get a Switch 2 Edition: the
+ * Edition itself, or the Switch game plus its upgrade pack. Amounts are
+ * current prices (sales included) in that country's currency.
+ */
+export interface ApiUpgradeCountry {
+  country: string;
+  currency: string;
+  base: number;
+  pack: number;
+  /** Not every Edition is sold whole; some only come as the upgrade */
+  edition?: number;
+  baseSale: boolean;
+  packSale: boolean;
+  editionSale: boolean;
+  /** The same in the caller's currency; missing without an exchange rate */
+  converted?: { base: number; pack: number; combo: number; edition?: number; saving?: number };
+}
+
+export interface ApiUpgrade {
+  edition: ApiGame;
+  base: ApiGame;
+  pack: ApiGame;
+  /** Where the Switch game plus upgrade saves the most against the Edition (or costs least, when the Edition isn't sold whole) */
+  best?: ApiUpgradeCountry;
+  countries: ApiUpgradeCountry[];
+}
+
+/** GET /v1/upgrades: games with a Switch 2 Edition upgrade pack, biggest saving first */
+export interface ApiUpgradeList {
+  items: ApiUpgrade[];
+}
+
 /** GET /v1/links: every game's matches outside Europe, for phone-only mode. See shared/links.ts. */
 export interface ApiLinks {
   rows: string;

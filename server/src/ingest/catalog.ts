@@ -1,7 +1,7 @@
 import { titleKey } from '@shared/match';
 import type { Game, Platform } from '@shared/types';
 import { americasEnabled } from '../config';
-import type { Db } from '../db';
+import { run, type Db } from '../db';
 import { searchEu } from '../sources/nintendo/catalogEu';
 import { fetchUsCatalog, searchUs } from '../sources/nintendo/catalogUs';
 import { listSteamDeals } from '../sources/steam';
@@ -52,6 +52,29 @@ export function ingestSwitchEntry(db: Db, grp: 'europe' | 'americas', nsuid: str
   return id;
 }
 
+/**
+ * A Switch 2 Edition's upgrade pack, filed as its own listing (priced like any game, in
+ * Europe's countries) and tied to the Edition. The title says what it is.
+ */
+export function ingestUpgradePack(db: Db, editionId: string, g: Game): string {
+  const pack = g.upgradeNsuid!;
+  const known = gameIdForNsuid(db, 'europe', pack);
+  const id = known ?? `sw:eu:${pack}`;
+  upsertGame(db, {
+    id,
+    platform: 'switch2',
+    title: /upgrade/i.test(g.title) ? g.title : `${g.title} Upgrade Pack`,
+    image: g.image,
+    publisher: g.publisher,
+    releaseDate: g.releaseDate,
+    appId: g.applicationId,
+    storeUrl: g.storeUrl,
+  });
+  if (!known) attachNsuid(db, 'europe', pack, id, 'source');
+  run(db, 'INSERT INTO upgrades (edition_id, pack_id) VALUES (?, ?) ON CONFLICT(edition_id) DO UPDATE SET pack_id = excluded.pack_id', editionId, id);
+  return id;
+}
+
 export interface SyncOpts {
   platform: SwitchPlatform;
   onSaleOnly: boolean;
@@ -69,7 +92,10 @@ export async function syncEuCatalog(db: Db, o: SyncOpts): Promise<string[]> {
         games.forEach((g, i) => {
           // Popularity rank only means something across the whole catalog
           const rank = o.onSaleOnly ? undefined : page * pageSize + i;
-          ids.push(ingestSwitchEntry(db, 'europe', g.nsuids!.europe!, g, rank));
+          const id = ingestSwitchEntry(db, 'europe', g.nsuids!.europe!, g, rank);
+          ids.push(id);
+          // The pack is returned too, so deal discovery prices it when it goes on sale
+          if (g.upgradeNsuid) ids.push(ingestUpgradePack(db, id, g));
         });
       });
       // The store's own count of discounted games feeds sale event detection

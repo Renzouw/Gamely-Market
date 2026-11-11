@@ -101,7 +101,9 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     await syncRegionCatalogs(db);
     const linked = await linkRegions(db);
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong, Korea or Southeast Asia`);
-    await refresh([...new Set([...usUnpriced, ...linked])]);
+    // Upgrade packs filed for the first time have no price yet
+    const packs = all<{ id: string }>(db, "SELECT pack_id AS id FROM upgrades u WHERE NOT EXISTS (SELECT 1 FROM prices p WHERE p.game_id = u.pack_id)").map((r) => r.id);
+    await refresh([...new Set([...usUnpriced, ...linked, ...packs])]);
     return !failedSince('nintendo-eu-catalog', t0);
   }
 

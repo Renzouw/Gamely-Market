@@ -11,6 +11,7 @@ import { GameRow } from '../../components/GameRow';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { ChipDivider, SortChip, type SortOption } from '../../components/SortChip';
 import { Chip, EmptyState, PlatformTabs, RowSkeleton } from '../../components/ui';
+import { UpgradeList } from '../../components/UpgradeList';
 import { useDebounced } from '../../hooks/useDebounced';
 import { useDirectory, usePrefs, type DirectoryPlatform } from '../../hooks/queries';
 import { cheapLimit } from '../../lib/format';
@@ -63,6 +64,9 @@ export default function DirectoryScreen() {
   const [big, setBig] = useState(false);
   const [cheap, setCheap] = useState(false);
   const [abroad, setAbroad] = useState(false);
+  // Its own list: Switch 2 Editions next to the Switch game + upgrade pack route
+  const [upgrades, setUpgrades] = useState(false);
+  const showUpgrades = upgrades && !isSteam;
   const limit = cheapLimit(prefs.currency);
 
   const options = useMemo<DirectoryOptions>(
@@ -89,7 +93,9 @@ export default function DirectoryScreen() {
   const count = q.total !== undefined ? `${q.total.toLocaleString()} ${q.total === 1 ? 'game' : 'games'}` : 'Games';
   const subtitle = isSteam
     ? 'Search the Steam store'
-    : country
+    : showUpgrades
+      ? 'Switch 2 Editions, and what the Switch game plus upgrade costs'
+      : country
       ? `${count} sold in the ${country.flag} ${country.name} eShop`
       : filtered && q.total !== undefined
         ? `${count} match, across the regions you buy from`
@@ -126,16 +132,28 @@ export default function DirectoryScreen() {
       {!isSteam ? (
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.filters}>
-            <SortChip value={sort} options={SORTS} onChange={setSort} title="Sort games" />
-            <CountryChip value={country?.code} onChange={setCountry} />
-            <ChipDivider />
-            <Chip label="On sale" active={onSale} onPress={() => setOnSale((v) => !v)} />
-            <Chip label="50% off or more" active={big} onPress={() => setBig((v) => !v)} />
-            <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
-            {canAbroad ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
+            {showUpgrades ? null : (
+              <>
+                <SortChip value={sort} options={SORTS} onChange={setSort} title="Sort games" />
+                <CountryChip value={country?.code} onChange={setCountry} />
+                <ChipDivider />
+              </>
+            )}
+            <Chip label="Upgrade packs" active={showUpgrades} onPress={() => setUpgrades((v) => !v)} accessibilityLabel="Show games with a Switch 2 Edition upgrade pack" />
+            {showUpgrades ? null : (
+              <>
+                <Chip label="On sale" active={onSale} onPress={() => setOnSale((v) => !v)} />
+                <Chip label="50% off or more" active={big} onPress={() => setBig((v) => !v)} />
+                <Chip label={`Under ${formatMoney(limit, prefs.currency)}`} active={cheap} onPress={() => setCheap((v) => !v)} />
+                {canAbroad ? <Chip label="Cheaper abroad" active={abroad} onPress={() => setAbroad((v) => !v)} /> : null}
+              </>
+            )}
           </ScrollView>
         </View>
       ) : null}
+      {showUpgrades ? (
+        <UpgradeList search={text} />
+      ) : (
       <FlashList
         // An emptied Steam search shows its prompt, not the last results kept on screen while typing
         data={isSteam && query.trim().length < 2 ? [] : q.items}
@@ -174,6 +192,7 @@ export default function DirectoryScreen() {
         ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.xxl }} color={c.subtle} /> : <View style={{ height: space.xxl }} />}
         refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isFetchingNextPage} onRefresh={() => void q.refetch()} tintColor={c.subtle} />}
       />
+      )}
     </View>
   );
 }

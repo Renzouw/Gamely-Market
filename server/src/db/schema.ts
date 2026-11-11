@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS game_ids (
 );
 CREATE INDEX IF NOT EXISTS game_ids_game ON game_ids(game_id);
 
+-- A Switch 2 Edition's upgrade pack (its own listing in games, Europe's ID),
+-- for people who own the Switch game. The Switch game is found by application ID.
+CREATE TABLE IF NOT EXISTS upgrades (
+  edition_id    TEXT PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+  pack_id       TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE
+);
+
 -- Japan, Hong Kong and Korea list games in their own languages, so we keep
 -- their catalogs here and link games by product code instead of by title
 CREATE TABLE IF NOT EXISTS region_catalog (
