@@ -10,13 +10,15 @@ interface ToastState {
   id: number;
   message?: string;
   action?: { label: string; onPress: () => void };
+  /** How long it stays, before any longer time Android asks for (screen readers) */
+  ms?: number;
 }
 
 const useToast = create<ToastState>(() => ({ id: 0 }));
 
 /** A short note at the bottom of the screen, with an optional action such as Undo. Gone after a few seconds. */
-export function showToast(message: string, action?: ToastState['action']) {
-  useToast.setState((s) => ({ id: s.id + 1, message, action }));
+export function showToast(message: string, action?: ToastState['action'], ms?: number) {
+  useToast.setState((s) => ({ id: s.id + 1, message, action, ms }));
 }
 
 const SHOW_MS = 5000;
@@ -24,15 +26,16 @@ const SHOW_MS = 5000;
 export function Toast() {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
-  const { id, message, action } = useToast();
+  const { id, message, action, ms: shownFor } = useToast();
 
   useEffect(() => {
     if (!message) return;
     let t: ReturnType<typeof setTimeout> | undefined;
     let gone = false;
     // Screen reader users get longer to reach Undo, as long as Android's setting asks for
-    void AccessibilityInfo.getRecommendedTimeoutMillis(SHOW_MS)
-      .catch(() => SHOW_MS)
+    const base = shownFor ?? SHOW_MS;
+    void AccessibilityInfo.getRecommendedTimeoutMillis(base)
+      .catch(() => base)
       .then((ms) => {
         if (!gone) t = setTimeout(() => useToast.setState((s) => (s.id === id ? { message: undefined, action: undefined } : s)), ms);
       });
@@ -40,13 +43,13 @@ export function Toast() {
       gone = true;
       clearTimeout(t);
     };
-  }, [id, message]);
+  }, [id, message, shownFor]);
 
   if (!message) return null;
   return (
     <View pointerEvents="box-none" style={[styles.wrap, { bottom: insets.bottom + 64 }]}>
       <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.toast, { backgroundColor: c.invert }]}>
-        <Text variant="callout" style={{ color: c.invertText, flex: 1 }} numberOfLines={2}>
+        <Text variant="callout" style={{ color: c.invertText, flex: 1 }} numberOfLines={3}>
           {message}
         </Text>
         {action ? (

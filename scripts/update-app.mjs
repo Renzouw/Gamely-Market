@@ -18,7 +18,10 @@ const note =
 
 ensureExpoProject();
 console.log(`\n> Sending the update to phones: "${note}"`);
-const r = eas(['update', '--channel', 'preview', '--environment', 'preview', '--platform', platform, '--message', note]);
+// The note also goes into the app itself, which shows it once as "Gamely updated: ..." when the new version starts
+const r = eas(['update', '--channel', 'preview', '--environment', 'preview', '--platform', platform, '--message', note], {
+  env: { ...process.env, EXPO_PUBLIC_UPDATE_NOTE: note },
+});
 if (r.status === 0) {
   console.log(`
 ✓ Sent. On the phone, open Gamely, wait a few seconds, close it fully, and

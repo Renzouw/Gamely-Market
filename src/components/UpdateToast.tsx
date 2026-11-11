@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space, useTheme } from '../theme';
 import { Text } from '../theme/Text';
+import { showToast } from './Toast';
 import { Button } from './ui';
 
 /** Coming back to the app after this long checks for a new version again (launch always checks). */
@@ -25,7 +27,31 @@ export function UpdateToast() {
   return <UpdateToastInner />;
 }
 
+/** The one-line note the update was sent with (scripts/update-app.mjs), baked into its bundle */
+const UPDATE_NOTE = process.env.EXPO_PUBLIC_UPDATE_NOTE;
+const SEEN_KEY = 'gamely.seenUpdate';
+
+/**
+ * The first time a new over-the-air version runs, say so once: "Gamely updated: ...".
+ * Nothing on the version built into the APK, or in development.
+ */
+function useUpdatedNote() {
+  useEffect(() => {
+    const id = Updates.updateId;
+    if (!UPDATE_NOTE || !id || Updates.isEmbeddedLaunch) return;
+    AsyncStorage.getItem(SEEN_KEY)
+      .then(async (seen) => {
+        if (seen === id) return;
+        await AsyncStorage.setItem(SEEN_KEY, id);
+        // A moment after start, so it isn't lost behind the first screen loading
+        setTimeout(() => showToast(`Gamely updated: ${UPDATE_NOTE}`, undefined, 8000), 1500);
+      })
+      .catch(() => undefined);
+  }, []);
+}
+
 function UpdateToastInner() {
+  useUpdatedNote();
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { isUpdatePending, downloadedUpdate, lastCheckForUpdateTimeSinceRestart } = Updates.useUpdates();
