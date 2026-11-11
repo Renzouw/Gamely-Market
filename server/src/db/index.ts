@@ -104,7 +104,7 @@ function moveEditionLinksOffPacks(db: DatabaseSync) {
   const rows = db
     .prepare(
       `SELECT i.grp, i.nsuid, i.game_id AS pack, u.edition_id AS edition FROM game_ids i LEFT JOIN upgrades u ON u.pack_id = i.game_id
-       WHERE i.game_id LIKE 'sw:eu:7005%' AND i.grp != 'europe'`,
+       WHERE i.game_id LIKE 'sw:eu:7005%' AND i.grp != 'europe' AND i.nsuid LIKE '7001%'`,
     )
     .all() as { grp: string; nsuid: string; pack: string; edition: string | null }[];
   const ranked = db.prepare("SELECT 1 AS x FROM games WHERE id LIKE 'sw:eu:7005%' AND (rank IS NOT NULL OR product_code IS NOT NULL OR code_key IS NOT NULL) LIMIT 1").get();

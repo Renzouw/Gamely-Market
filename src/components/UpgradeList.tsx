@@ -2,75 +2,28 @@ import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { memo, useCallback, useMemo } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
-import type { ApiUpgrade, ApiUpgradeCountry } from '@shared/api';
+import type { ApiUpgrade } from '@shared/api';
 import { withoutEdition } from '@shared/listing';
 import { titleKey } from '@shared/match';
-import { formatMoney, formatWhole } from '@shared/pricing';
-import { regionLabel } from '@shared/regions';
 import { errorText } from '../api/client';
 import { useDataMode, usePrefs, useUpgrades } from '../hooks/queries';
+import { upgradeSummary } from '../lib/upgrades';
 import { GUTTER, space, useTheme } from '../theme';
 import { Text } from '../theme/Text';
 import { Cover, EmptyState, RowSkeleton, Tap } from './ui';
 
-/** Whole amounts from 100 up ("₱3,490", not "₱3,490.00"): long prices made the rows wrap and cut off */
-const fmt = (n: number, currency: string) => (Math.abs(n) >= 100 ? formatWhole(n, currency) : formatMoney(n, currency));
-
-/** The trick in the caller's own eShop, against the Edition there: "In your eShop 🇵🇭: ₱3,490 + ₱390 = ₱3,880, same price" */
-export function homeLineText(home: ApiUpgradeCountry, currency: string): string {
-  const r = regionLabel(home.country);
-  const c = home.converted;
-  const money = (mine: number | undefined, local: number) => (c && mine !== undefined ? fmt(mine, currency) : fmt(local, home.currency));
-  const saving = c?.saving;
-  const verdict = saving === undefined ? '' : saving >= 0.01 ? `, saves ${fmt(saving, currency)}` : saving <= -0.01 ? `, ${fmt(-saving, currency)} more` : ', same price';
-  return `In your eShop ${r.flag}: ${money(c?.base, home.base)} + ${money(c?.pack, home.pack)} = ${money(c?.combo, home.base + home.pack)}${verdict}`;
-}
-
-function HomeLine({ home, currency }: { home: ApiUpgradeCountry; currency: string }) {
-  const saving = home.converted?.saving;
-  return (
-    <Text variant="footnote" tone={saving !== undefined && saving >= 0.01 ? 'signal' : 'subtle'} numberOfLines={2}>
-      {homeLineText(home, currency)}
-    </Text>
-  );
-}
-
 /**
- * Switch 2 Editions next to the "Switch game + upgrade pack" route, in the
- * country where that route saves the most. An upgrade pack only works with
- * a game from the same eShop, so each comparison stays within one country.
+ * One Switch 2 Edition: the cheapest way to get it (bought whole, or the Switch game plus
+ * its upgrade pack from one eShop), the other route for comparison, and your own eShop.
  */
 const UpgradeRow = memo(function UpgradeRow({ item, currency }: { item: ApiUpgrade; currency: string }) {
-  const b = item.best;
-  const home = item.home;
-  const c = b?.converted;
-  // In the caller's currency when there's a rate, otherwise in the country's own
-  const money = (mine: number | undefined, local: number) => (c && mine !== undefined ? fmt(mine, currency) : fmt(local, b!.currency));
-  const where = b ? regionLabel(b.country) : undefined;
   const title = withoutEdition(item.edition.title);
-  const saving = c?.saving;
-
-  let verdict: { text: string; tone: 'signal' | 'subtle' | 'muted' };
-  if (saving !== undefined && saving >= 0.01) verdict = { text: `Save ${fmt(saving, currency)}`, tone: 'signal' };
-  else if (saving !== undefined) verdict = { text: 'No saving', tone: 'subtle' };
-  else verdict = { text: 'Only as upgrade', tone: 'muted' };
-
+  const s = upgradeSummary(item, currency, title);
   return (
     <Tap
-      onPress={() =>
-        router.push({
-          pathname: '/game/[key]',
-          params: { key: item.edition.key },
-        })
-      }
+      onPress={() => router.push({ pathname: '/game/[key]', params: { key: item.edition.key } })}
       accessibilityRole="button"
-      accessibilityLabel={
-        b
-          ? `${title}. Switch game ${money(c?.base, b.base)} plus upgrade ${money(c?.pack, b.pack)} is ${money(c?.combo, b.base + b.pack)}${
-              b.edition !== undefined ? `, against ${money(c?.edition, b.edition)} for the Switch 2 Edition` : ''
-            }, in ${where!.name}. ${verdict.text}.${home && home.country !== b.country ? ` ${homeLineText(home, currency)}.` : ''}`
-          : `${title}. ${verdict.text}.`
-      }
+      accessibilityLabel={s.label}
       scaleTo={0.985}
       style={styles.row}
     >
@@ -79,32 +32,27 @@ const UpgradeRow = memo(function UpgradeRow({ item, currency }: { item: ApiUpgra
         <Text variant="bodyMedium" numberOfLines={2}>
           {title}
         </Text>
-        {b ? (
-          <>
-            <Text variant="footnote" tone="muted" numberOfLines={2}>
-              Switch game {money(c?.base, b.base)}
-              {b.baseSale ? ' (sale)' : ''} + upgrade {money(c?.pack, b.pack)}
-              {b.packSale ? ' (sale)' : ''} = <Text variant="footnote">{money(c?.combo, b.base + b.pack)}</Text>
-            </Text>
-            <Text variant="footnote" tone="subtle" numberOfLines={1}>
-              {b.edition !== undefined ? `Switch 2 Edition ${money(c?.edition, b.edition)}${b.editionSale ? ' (sale)' : ''}` : 'The Edition isn’t sold whole here'}
-            </Text>
-          </>
-        ) : null}
-        {home && home.country !== b?.country ? <HomeLine home={home} currency={currency} /> : null}
-      </View>
-      <View style={styles.verdict}>
-        <Text variant="priceS" tone={verdict.tone} numberOfLines={1}>
-          {verdict.text}
+        <Text variant="footnote" numberOfLines={3}>
+          {s.cheapest}
         </Text>
-        {saving !== undefined && saving >= 0.01 && c?.edition ? (
-          <Text variant="priceXS" tone="subtle">
-            −{Math.round((saving / c.edition) * 100)}%
+        {s.other ? (
+          <Text variant="footnote" tone="subtle" numberOfLines={2}>
+            {s.other}
           </Text>
         ) : null}
-        {where ? (
+        {s.home ? (
+          <Text variant="footnote" tone="subtle" numberOfLines={2}>
+            {s.home}
+          </Text>
+        ) : null}
+      </View>
+      <View style={styles.verdict}>
+        <Text variant="priceS" tone={s.verdict.tone} numberOfLines={1}>
+          {s.verdict.text}
+        </Text>
+        {s.verdict.detail ? (
           <Text variant="priceXS" tone="subtle" numberOfLines={1}>
-            in {where.flag} {b!.country}
+            {s.verdict.detail}
           </Text>
         ) : null}
       </View>
@@ -131,7 +79,7 @@ export function UpgradeList({ search, header }: { search: string; header?: React
           {header}
           {items.length ? (
             <Text variant="caption" tone="subtle" style={styles.note}>
-              An upgrade pack turns the Switch game into its Switch 2 Edition. Both have to come from the same eShop, so each line compares prices in one country.
+              The cheapest way to each Switch 2 Edition across your regions: bought whole, or as the Switch game plus its upgrade pack. The game and its upgrade have to come from the same eShop.
             </Text>
           ) : null}
         </>

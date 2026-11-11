@@ -81,18 +81,37 @@ export interface ApiUpgradeCountry {
   converted?: { base: number; pack: number; combo: number; edition?: number; saving?: number };
 }
 
+/** The Switch 2 Edition bought whole in one country */
+export interface ApiEditionPrice {
+  country: string;
+  currency: string;
+  amount: number;
+  sale: boolean;
+  /** In the caller's currency */
+  converted: number;
+}
+
 export interface ApiUpgrade {
   edition: ApiGame;
   base: ApiGame;
   pack: ApiGame;
-  /** Where the Switch game plus upgrade saves the most against the Edition (or costs least, when the Edition isn't sold whole) */
+  /** The cheapest Edition bought whole, among the caller's regions */
+  cheapestEdition?: ApiEditionPrice;
+  /** The cheapest Switch game + upgrade pack, both from one country */
+  cheapestUpgrade?: ApiUpgradeCountry;
+  /**
+   * cheapestEdition minus cheapestUpgrade's total: above zero, the upgrade route is the
+   * cheapest way to the Edition by that much; below zero, buying the Edition whole is.
+   */
+  saving?: number;
+  /** Where the Switch game plus upgrade saves the most against that country's own Edition (kept for app versions before cheapestUpgrade) */
   best?: ApiUpgradeCountry;
   /** The same sums in the caller's own eShop, when it sells all of it */
   home?: ApiUpgradeCountry;
   countries: ApiUpgradeCountry[];
 }
 
-/** GET /v1/upgrades: games with a Switch 2 Edition upgrade pack, biggest saving first */
+/** GET /v1/upgrades: games with a Switch 2 Edition upgrade pack, those where the upgrade route saves most first */
 export interface ApiUpgradeList {
   items: ApiUpgrade[];
 }

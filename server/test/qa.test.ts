@@ -53,7 +53,8 @@ describe('upgrade packs that used to be the Edition', () => {
       old,
       `INSERT INTO game_ids (grp, nsuid, game_id, match_method) VALUES
         ('europe','70010000099001','sw:eu:70010000099001','source'), ('europe','70050000099002','sw:eu:70050000099002','source'),
-        ('japan','70010000099003','sw:eu:70050000099002','product_code')`,
+        ('japan','70010000099003','sw:eu:70050000099002','product_code'),
+        ('sea','70050000099004','sw:eu:70050000099002','product_code')`,
     );
     run(
       old,
@@ -64,6 +65,8 @@ describe('upgrade packs that used to be the Edition', () => {
 
     const db = openDb(path);
     expect(all(db, "SELECT game_id FROM game_ids WHERE grp = 'japan'")).toEqual([{ game_id: 'sw:eu:70010000099001' }]);
+    // The pack's own Southeast Asian ID (an add-on ID, 7005) is the pack's and stays
+    expect(all(db, "SELECT game_id FROM game_ids WHERE grp = 'sea'")).toEqual([{ game_id: 'sw:eu:70050000099002' }]);
     expect(all(db, "SELECT game_id, country FROM prices ORDER BY game_id, country")).toEqual([
       { game_id: 'sw:eu:70010000099001', country: 'JP' },
       { game_id: 'sw:eu:70050000099002', country: 'GB' }, // the pack's own European price stays

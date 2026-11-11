@@ -141,6 +141,11 @@ describe('upgrade packs', () => {
     expect(item.home).toMatchObject({ country: 'PH', base: 3490, pack: 390, edition: 3880, converted: { combo: 3880, saving: 0 } });
     // The best trick is still the British sale
     expect(item.best?.country).toBe('GB');
+    // The cheapest way to the Edition: whole in the Philippines costs ₱3,880; the British Switch game on
+    // sale plus the upgrade (£37.98 at 58 PHP per 0.8 GBP) is ₱2,753, so the upgrade route wins by ₱1,127
+    expect(item.cheapestEdition).toMatchObject({ country: 'PH', amount: 3880, converted: 3880 });
+    expect(item.cheapestUpgrade?.country).toBe('GB');
+    expect(item.saving).toBeCloseTo(3880 - (37.98 / 0.8) * 58, 1);
   });
 
   it('unhooks an upgrade pack ID that was taken for a game’s own, with the prices it caused', () => {

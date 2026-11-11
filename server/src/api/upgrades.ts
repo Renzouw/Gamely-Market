@@ -1,4 +1,4 @@
-import type { ApiFx, ApiUpgrade, ApiUpgradeCountry, ApiUpgradeList } from '@shared/api';
+import type { ApiEditionPrice, ApiFx, ApiUpgrade, ApiUpgradeCountry, ApiUpgradeList } from '@shared/api';
 import { convert } from '@shared/pricing';
 import { all, type Db } from '../db';
 import { getGames, nsuidsForGames, pricesFor, rowToGame, rowToPrice, type PriceRow } from '../store';
@@ -7,8 +7,9 @@ import { effectiveRegions } from './listings';
 const round = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Switch 2 Editions with an upgrade pack, and what each route costs: the
- * Edition, or the Switch game plus the upgrade. An upgrade pack only works
+ * Switch 2 Editions with an upgrade pack, and the cheapest way to each: the
+ * Edition bought whole in any of the caller's regions, or the Switch game
+ * plus the upgrade. An upgrade pack only works
  * with a game bought from the same eShop, so both routes are priced within
  * one country at a time. Upgrade packs come from Europe's catalog, plus
  * Southeast Asia's (the Philippines, Singapore, Malaysia, Thailand), so
@@ -78,17 +79,41 @@ export function listUpgrades(db: Db, q: { home: string; currency: string; region
       : priced.length
         ? priced.reduce((a, b) => (b.converted!.combo < a.converted!.combo ? b : a))
         : undefined;
+    // The real question: the cheapest way to the Edition. Bought whole in any of your
+    // regions, or as the Switch game plus its upgrade in one country.
+    let cheapestEdition: ApiEditionPrice | undefined;
+    for (const [country, e] of ed) {
+      const cur = e.sale ?? e.regular;
+      const converted = conv(cur.amount, cur.currency);
+      if (converted !== undefined && (!cheapestEdition || converted < cheapestEdition.converted)) {
+        cheapestEdition = { country, currency: cur.currency, amount: cur.amount, sale: !!e.sale, converted };
+      }
+    }
+    // A tie goes to your own eShop (euro countries often charge the same)
+    const homeEdition = ed.get(q.home);
+    if (cheapestEdition && homeEdition) {
+      const cur = homeEdition.sale ?? homeEdition.regular;
+      const converted = conv(cur.amount, cur.currency);
+      if (converted !== undefined && converted - cheapestEdition.converted < 0.005) cheapestEdition = { country: q.home, currency: cur.currency, amount: cur.amount, sale: !!homeEdition.sale, converted };
+    }
+    const cheapestUpgrade = priced.length ? priced.reduce((a, b) => (b.converted!.combo < a.converted!.combo || (b.converted!.combo === a.converted!.combo && b.country === q.home) ? b : a)) : undefined;
+    // A free Edition (free-to-play games) leaves nothing to compare
+    if (cheapestEdition?.converted === 0) continue;
+    const saving = cheapestEdition && cheapestUpgrade ? round(cheapestEdition.converted - cheapestUpgrade.converted!.combo) : undefined;
     items.push({
       edition: rowToGame(edition, nsuids.get(edition.id)),
       base: rowToGame(base, nsuids.get(base.id)),
       pack: rowToGame(pack, nsuids.get(pack.id)),
+      cheapestEdition,
+      cheapestUpgrade,
+      saving,
       best,
       home: countries.find((c) => c.country === q.home),
       countries,
     });
   }
-  // Biggest saving first; then the cheapest route where the Edition isn't sold whole
-  const saving = (i: ApiUpgrade) => i.best?.converted?.saving ?? -Infinity;
-  items.sort((a, b) => saving(b) - saving(a) || (a.best?.converted?.combo ?? Infinity) - (b.best?.converted?.combo ?? Infinity));
+  // The upgrade route's biggest wins first, then where it's closest; unknown last
+  const saving = (i: ApiUpgrade) => i.saving ?? -Infinity;
+  items.sort((a, b) => saving(b) - saving(a) || (a.cheapestUpgrade?.converted?.combo ?? Infinity) - (b.cheapestUpgrade?.converted?.combo ?? Infinity));
   return { items };
 }
