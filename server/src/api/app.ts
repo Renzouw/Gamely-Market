@@ -47,6 +47,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'nintendo-korea-catalog': 'Nintendo Korea catalog',
   'nintendo-sea-catalog': 'Nintendo Southeast Asia catalog',
   'nintendo-sea-upgrades': 'Nintendo Southeast Asia upgrade packs',
+  'nintendo-japan-upgrades': 'Nintendo Japan upgrade packs',
   'nintendo-hk-titles': 'Nintendo Hong Kong title pages',
   'steam-prices': 'Steam prices',
   'steam-specials': 'Steam specials',
@@ -327,6 +328,8 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
       trackedSince: g.created_at,
       unmatched,
       stale: !rows.length || rows.some((r) => now - r.checked_at > config.staleAfterMs),
+      // The Switch game, its Switch 2 Edition or the upgrade between them: both ways to the Edition
+      upgrade: g.platform === 'steam' ? undefined : listUpgrades(db, { home: q.data.home, currency: q.data.currency, regions: csv(c.req.query('regions')) }, fx, now, id).items[0],
     };
     return c.json(body);
   });

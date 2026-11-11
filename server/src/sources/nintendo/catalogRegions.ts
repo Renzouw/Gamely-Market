@@ -12,7 +12,8 @@ import {
   parseEshopAppId,
   parseJpResponse,
   parseUpgradeResponse,
-  seaUpgradeQuery,
+  upgradeQuery,
+  type UpgradeGroup,
   type UpgradeEntry,
   type AsiaGroup,
   type AsiaResponse,
@@ -34,11 +35,12 @@ export async function fetchSeaPage(page: number): Promise<{ entries: RegionEntry
   return parseJpResponse(await getJson<JpResponse>(`${config.upstream.nintendoSeaSearch}?${qs(jpCatalogQuery(page))}`));
 }
 
-/** Every Switch 2 Edition upgrade pack Southeast Asia sells (about 100, one request). */
-export async function fetchSeaUpgrades(): Promise<UpgradeEntry[]> {
+/** Every Switch 2 Edition upgrade pack Southeast Asia or Japan sells (100-150, one request). */
+export async function fetchUpgrades(grp: UpgradeGroup): Promise<UpgradeEntry[]> {
+  const base = grp === 'sea' ? config.upstream.nintendoSeaSearch : config.upstream.nintendoJpSearch;
   const out: UpgradeEntry[] = [];
   for (let page = 0; page < 10; page++) {
-    const res = parseUpgradeResponse(await getJson<JpResponse>(`${config.upstream.nintendoSeaSearch}?${qs(seaUpgradeQuery(page))}`));
+    const res = parseUpgradeResponse(await getJson<JpResponse>(`${base}?${qs(upgradeQuery(grp, page))}`));
     out.push(...res.entries);
     if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
   }

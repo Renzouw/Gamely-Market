@@ -82,3 +82,17 @@ export function upgradeSummary(item: ApiUpgrade, currency: string, title: string
   const label = [title, `Cheapest: ${out.cheapest}`, out.other, out.verdict.text, out.verdict.detail, home].filter(Boolean).join('. ');
   return { ...out, home, label };
 }
+
+/**
+ * For someone who already owns the Switch game: only the upgrade's price matters, and it
+ * has to come from the eShop their game is from. Their own eShop when it sells the pack,
+ * otherwise the cheapest anywhere with that caveat.
+ */
+export function ownedLine(item: ApiUpgrade, currency: string): string | undefined {
+  const home = item.home?.converted ? item.home : undefined;
+  if (home) return `The upgrade is ${home.converted!.pack === 0 ? 'free' : fmt(home.converted!.pack, currency)} in your eShop (${regionLabel(home.country).flag} ${regionLabel(home.country).name}).`;
+  const cheapest = item.countries.filter((c) => c.converted).reduce<ApiUpgradeCountry | undefined>((a, b) => (!a || b.converted!.pack < a.converted!.pack ? b : a), undefined);
+  if (!cheapest) return undefined;
+  const price = cheapest.converted!.pack === 0 ? 'free' : `from ${fmt(cheapest.converted!.pack, currency)}`;
+  return `The upgrade is ${price} in ${place(cheapest.country)}. It has to come from the same eShop as your Switch game.`;
+}

@@ -15,7 +15,7 @@ const round = (n: number) => Math.round(n * 100) / 100;
  * Southeast Asia's (the Philippines, Singapore, Malaysia, Thailand), so
  * those are the countries with all three prices.
  */
-export function listUpgrades(db: Db, q: { home: string; currency: string; regions: string[] }, fx: ApiFx | undefined, now = Date.now()): ApiUpgradeList {
+export function listUpgrades(db: Db, q: { home: string; currency: string; regions: string[] }, fx: ApiFx | undefined, now = Date.now(), onlyFor?: string): ApiUpgradeList {
   const { regions } = effectiveRegions('switch', q.home, q.regions);
   const rows = all<{ edition_id: string; pack_id: string; base_id: string | null }>(
     db,
@@ -25,7 +25,10 @@ export function listUpgrades(db: Db, q: { home: string; currency: string; region
          ORDER BY b.rank IS NULL, b.rank LIMIT 1) AS base_id
      FROM upgrades u JOIN games e ON e.id = u.edition_id
      WHERE e.app_id IS NOT NULL`,
-  ).filter((r): r is { edition_id: string; pack_id: string; base_id: string } => !!r.base_id);
+  )
+    .filter((r): r is { edition_id: string; pack_id: string; base_id: string } => !!r.base_id)
+    // One game's page: the upgrade it's part of, whichever of the three it is
+    .filter((r) => !onlyFor || r.edition_id === onlyFor || r.pack_id === onlyFor || r.base_id === onlyFor);
   if (!rows.length) return { items: [] };
 
   const ids = [...new Set(rows.flatMap((r) => [r.edition_id, r.pack_id, r.base_id]))];

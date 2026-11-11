@@ -14,6 +14,7 @@ import { errorText } from '../../api/client';
 import { PriceChart } from '../../components/PriceChart';
 import { PriceSpread } from '../../components/PriceSpread';
 import { showToast } from '../../components/Toast';
+import { UpgradeCard } from '../../components/UpgradeCard';
 import { Button, Cover, EmptyState, Group, haptic, PlatformLabel, Row, Sheet, Skeleton, SwitchRow } from '../../components/ui';
 import { useDataMode, useFx, useGameDetail, useIsWatched, usePriceSummary, useWatchActions } from '../../hooks/queries';
 import { ago, parseTarget, shortDate } from '../../lib/format';
@@ -262,6 +263,8 @@ export default function GameScreen() {
             </View>
           </View>
         </View>
+
+        {d.upgrade && !placeholder ? <UpgradeCard upgrade={d.upgrade} currency={s.currency} current={g.key} /> : null}
 
         {watch ? (
           <View onLayout={(e) => (alertsBox.current = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })}>

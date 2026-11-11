@@ -115,6 +115,20 @@ describe('upgrade packs', () => {
     const [item] = body.items;
     expect([item.base.key, item.pack.key, item.edition.key]).toEqual(['sw:eu:70010000063715', 'sw:eu:70050000056808', 'sw:eu:70010000096822']);
     expect(item.best).toMatchObject({ country: 'GB', base: 29.99, pack: 7.99, edition: 66.99, baseSale: true, converted: { combo: 37.98, saving: 29.01 } });
+
+    // Each of the three pages carries the same comparison
+    for (const id of ['sw:eu:70010000063715', 'sw:eu:70050000056808', 'sw:eu:70010000096822']) {
+      const page = (await (await createApp(db, {}).request(`/v1/games/${id}?home=GB&currency=GBP&regions=GB`)).json()) as { upgrade?: { edition: { key: string }; saving?: number } };
+      expect(page.upgrade?.edition.key).toBe('sw:eu:70010000096822');
+      expect(page.upgrade?.saving).toBeCloseTo(29.01, 2);
+    }
+  });
+
+  it('reads Japan’s upgrade passes the same way (アップグレードパス)', () => {
+    const jp = fixture('jp-search.json');
+    expect(parseUpgradeResponse(jp).entries).toEqual([
+      { nsuid: '70050000056483', codeKey: 'BEEAXN7', title: 'ゼルダの伝説 ティアーズ オブ ザ キングダム Nintendo Switch 2 Edition アップグレードパス' },
+    ]);
   });
 
   it('reads Southeast Asia’s Switch 2 Edition upgrade packs, and only those', () => {

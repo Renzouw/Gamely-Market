@@ -150,6 +150,8 @@ export interface ApiGameDetail {
   /** Regional catalogs we couldn't confidently match this game in */
   unmatched: Exclude<ShopGroup, 'steam'>[];
   stale: boolean;
+  /** For a Switch game, its Switch 2 Edition or the upgrade pack between them: both ways to the Edition (server only) */
+  upgrade?: ApiUpgrade;
 }
 
 export interface ApiFx extends FxRates {

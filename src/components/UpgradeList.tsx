@@ -12,9 +12,13 @@ import { GUTTER, space, useTheme } from '../theme';
 import { Text } from '../theme/Text';
 import { Cover, EmptyState, RowSkeleton, Tap } from './ui';
 
+/** Rows and the two section headings, in one list */
+type Entry = { kind: 'heading'; title: string; count: number } | { kind: 'row'; item: ApiUpgrade };
+
 /**
- * One Switch 2 Edition: the cheapest way to get it (bought whole, or the Switch game plus
- * its upgrade pack from one eShop), the other route for comparison, and your own eShop.
+ * One Switch 2 Edition and the cheapest way to get it (bought whole, or the Switch game
+ * plus its upgrade pack from one eShop). The rest (the other way, your own eShop, the
+ * price if you already own the game) is on its game page.
  */
 const UpgradeRow = memo(function UpgradeRow({ item, currency }: { item: ApiUpgrade; currency: string }) {
   const title = withoutEdition(item.edition.title);
@@ -32,19 +36,9 @@ const UpgradeRow = memo(function UpgradeRow({ item, currency }: { item: ApiUpgra
         <Text variant="bodyMedium" numberOfLines={2}>
           {title}
         </Text>
-        <Text variant="footnote" numberOfLines={3}>
+        <Text variant="footnote" tone="muted" numberOfLines={3}>
           {s.cheapest}
         </Text>
-        {s.other ? (
-          <Text variant="footnote" tone="subtle" numberOfLines={2}>
-            {s.other}
-          </Text>
-        ) : null}
-        {s.home ? (
-          <Text variant="footnote" tone="subtle" numberOfLines={2}>
-            {s.home}
-          </Text>
-        ) : null}
       </View>
       <View style={styles.verdict}>
         <Text variant="priceS" tone={s.verdict.tone} numberOfLines={1}>
@@ -67,19 +61,39 @@ export function UpgradeList({ search, header }: { search: string; header?: React
   const q = useUpgrades();
   const term = titleKey(search.trim());
   const items = useMemo(() => (q.data?.items ?? []).filter((i) => !term || titleKey(i.edition.title).includes(term) || titleKey(i.base.title).includes(term)), [q.data, term]);
-  const renderItem = useCallback(({ item }: { item: ApiUpgrade }) => <UpgradeRow item={item} currency={currency} />, [currency]);
+  // Where the upgrade route is the cheapest way first; then the rest, where buying the Edition whole is
+  const entries = useMemo<Entry[]>(() => {
+    const wins = items.filter((i) => (i.saving ?? -1) >= 0.01);
+    const rest = items.filter((i) => !wins.includes(i));
+    return [
+      ...(wins.length ? [{ kind: 'heading' as const, title: 'Cheaper with the upgrade', count: wins.length }, ...wins.map((item) => ({ kind: 'row' as const, item }))] : []),
+      ...(rest.length ? [{ kind: 'heading' as const, title: 'Cheaper to buy the Edition', count: rest.length }, ...rest.map((item) => ({ kind: 'row' as const, item }))] : []),
+    ];
+  }, [items]);
+  const renderItem = useCallback(
+    ({ item }: { item: Entry }) =>
+      item.kind === 'heading' ? (
+        <Text variant="overline" tone="subtle" style={styles.heading} accessibilityRole="header">
+          {item.title} · {item.count}
+        </Text>
+      ) : (
+        <UpgradeRow item={item.item} currency={currency} />
+      ),
+    [currency],
+  );
 
   return (
     <FlashList
-      data={items}
-      keyExtractor={(i) => i.edition.key}
+      data={entries}
+      keyExtractor={(e) => (e.kind === 'heading' ? `h:${e.title}` : e.item.edition.key)}
+      getItemType={(e) => e.kind}
       renderItem={renderItem}
       ListHeaderComponent={
         <>
           {header}
-          {items.length ? (
+          {entries.length ? (
             <Text variant="caption" tone="subtle" style={styles.note}>
-              The cheapest way to each Switch 2 Edition across your regions: bought whole, or as the Switch game plus its upgrade pack. The game and its upgrade have to come from the same eShop.
+              The cheapest way to each Switch 2 Edition across your regions: bought whole, or as the Switch game plus its upgrade pack from one eShop. Open a game for the other way and the price if you already own it.
             </Text>
           ) : null}
         </>
@@ -114,6 +128,7 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
   },
   verdict: { alignItems: 'flex-end', gap: 2, maxWidth: '30%' },
+  heading: { paddingHorizontal: GUTTER, paddingTop: space.xl, paddingBottom: space.xs },
   note: {
     paddingHorizontal: GUTTER,
     paddingTop: space.sm,

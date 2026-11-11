@@ -107,7 +107,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     // Upgrade packs filed for the first time have no price yet; nor do ones just found in Southeast Asia
     const packs = all<{ id: string }>(db, "SELECT pack_id AS id FROM upgrades u WHERE NOT EXISTS (SELECT 1 FROM price_history h WHERE h.game_id = u.pack_id)").map((r) => r.id);
     const seaPacks = await linkUpgradePacks(db);
-    if (seaPacks.length) log(`upgrade packs: ${seaPacks.length} found in Southeast Asia`);
+    if (seaPacks.length) log(`upgrade packs: ${seaPacks.length} found in Japan or Southeast Asia`);
     await refresh([...new Set([...usUnpriced, ...linked, ...packs, ...seaPacks])]);
     return !failedSince('nintendo-eu-catalog', t0);
   }

@@ -83,7 +83,8 @@ export function parseJpItem(it: JpItem): RegionEntry | undefined {
 }
 
 /**
- * Southeast Asia's Switch 2 Edition upgrade packs. The catalog query leaves
+ * Switch 2 Edition upgrade packs in Southeast Asia and Japan (same search, same
+ * fields). The catalog query leaves
  * add-ons out, so they're searched for by name; each carries its Edition's
  * product code, which is how it's tied to the Edition.
  */
@@ -94,13 +95,17 @@ export interface UpgradeEntry {
   title: string;
 }
 
-export function seaUpgradeQuery(page: number) {
-  return { q: 'upgrade pack', limit: JP_PAGE_SIZE, page: page + 1 };
+/** What each store calls an upgrade pack, to search for them by name */
+export const UPGRADE_SEARCH = { sea: 'upgrade pack', japan: 'アップグレードパス' } as const;
+export type UpgradeGroup = keyof typeof UPGRADE_SEARCH;
+
+export function upgradeQuery(grp: UpgradeGroup, page: number) {
+  return { q: UPGRADE_SEARCH[grp], limit: JP_PAGE_SIZE, page: page + 1 };
 }
 
 /** Add-on IDs start 7005. The name check leaves out other add-ons with "upgrade" in them (item packs, deluxe bundles). */
 const ADD_ON_NSUID = /^7005\d{10}$/;
-const SWITCH2_UPGRADE = /switch(™)?\s*2\s*edition.*upgrade\s+pack/i;
+const SWITCH2_UPGRADE = /switch(™)?\s*2\s*edition.*(upgrade\s+pack|アップグレードパス)/i;
 
 export function parseUpgradeResponse(data: JpResponse): { entries: UpgradeEntry[]; total: number; count: number } {
   const items = data.result?.items ?? [];

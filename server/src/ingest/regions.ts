@@ -2,7 +2,7 @@ import { productCore, titleKey } from '@shared/match';
 import { config } from '../config';
 import { all, get, run, tx, type Db } from '../db';
 import { JP_PAGE_SIZE } from '@shared/stores/nintendoRegions';
-import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, fetchSeaPage, fetchSeaUpgrades, type RegionEntry } from '../sources/nintendo/catalogRegions';
+import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, fetchSeaPage, fetchUpgrades, type RegionEntry } from '../sources/nintendo/catalogRegions';
 import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } from '../store';
 
 /**
@@ -156,37 +156,39 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
 /* ------------------------------ upgrade packs ------------------------------ */
 
 /**
- * Southeast Asia's upgrade packs, tied to ours: a pack carries its Edition's
- * product code, so the one Edition we've linked there with that code leads to
- * our listing of its upgrade pack (from Europe), which gains the Southeast
- * Asian ID and so gets priced in the Philippines, Singapore, Malaysia and
- * Thailand. Returns the packs that gained it.
+ * Southeast Asia's and Japan's upgrade packs, tied to ours: a pack carries its
+ * Edition's product code, so the one Edition we've linked there with that code
+ * leads to our listing of its upgrade pack (from Europe), which gains that
+ * region's ID and so gets priced there. Returns the packs that gained one.
  */
 export async function linkUpgradePacks(db: Db): Promise<string[]> {
-  let entries;
-  try {
-    entries = await fetchSeaUpgrades();
-    sourceOk(db, 'nintendo-sea-upgrades', entries.length);
-  } catch (e) {
-    sourceError(db, 'nintendo-sea-upgrades', e);
-    return [];
-  }
   const linked: string[] = [];
-  for (const e of entries) {
-    if (isLinked(db, 'sea', e.nsuid)) continue;
-    const editions = all<{ game_id: string }>(
-      db,
-      `SELECT DISTINCT i.game_id FROM region_catalog r JOIN game_ids i ON i.grp = r.grp AND i.nsuid = r.nsuid
-       WHERE r.grp = 'sea' AND r.platform = 'switch2' AND r.code_key = ?`,
-      e.codeKey,
-    );
-    if (editions.length !== 1) continue;
-    const pack = get<{ pack_id: string }>(db, 'SELECT pack_id FROM upgrades WHERE edition_id = ?', editions[0].game_id);
-    if (!pack || linkedGroups(db, pack.pack_id).has('sea')) continue;
-    attachNsuid(db, 'sea', e.nsuid, pack.pack_id, 'product_code');
-    linked.push(pack.pack_id);
+  for (const grp of ['sea', 'japan'] as const) {
+    let entries;
+    try {
+      entries = await fetchUpgrades(grp);
+      sourceOk(db, `nintendo-${grp}-upgrades`, entries.length);
+    } catch (e) {
+      sourceError(db, `nintendo-${grp}-upgrades`, e);
+      continue;
+    }
+    for (const e of entries) {
+      if (isLinked(db, grp, e.nsuid)) continue;
+      const editions = all<{ game_id: string }>(
+        db,
+        `SELECT DISTINCT i.game_id FROM region_catalog r JOIN game_ids i ON i.grp = r.grp AND i.nsuid = r.nsuid
+         WHERE r.grp = ? AND r.platform = 'switch2' AND r.code_key = ?`,
+        grp,
+        e.codeKey,
+      );
+      if (editions.length !== 1) continue;
+      const pack = get<{ pack_id: string }>(db, 'SELECT pack_id FROM upgrades WHERE edition_id = ?', editions[0].game_id);
+      if (!pack || linkedGroups(db, pack.pack_id).has(grp)) continue;
+      attachNsuid(db, grp, e.nsuid, pack.pack_id, 'product_code');
+      linked.push(pack.pack_id);
+    }
   }
-  return linked;
+  return [...new Set(linked)];
 }
 
 /* --------------------------------- linking -------------------------------- */

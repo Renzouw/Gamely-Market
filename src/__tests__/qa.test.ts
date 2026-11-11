@@ -179,6 +179,15 @@ describe('upgrade packs list', () => {
     expect(s.home).toBe('In your eShop 🇵🇭: ₱836 + ₱335 = ₱1,171, ₱167 more than the Edition there');
   });
 
+  it('tells someone who already owns the Switch game what the upgrade costs in their eShop', () => {
+    const { ownedLine } = jest.requireActual('../lib/upgrades') as typeof import('../lib/upgrades');
+    expect(ownedLine(item({ home: route('PH', 2525, 205, 2980), countries: [route('PH', 2525, 205, 2980)] }), 'PHP')).toBe('The upgrade is ₱205 in your eShop (🇵🇭 Philippines).');
+    // Not sold at home: the cheapest elsewhere, with the catch
+    expect(ownedLine(item({ countries: [route('GB', 2000, 450), route('NZ', 2100, 400)] }), 'PHP')).toBe(
+      'The upgrade is from ₱400 in 🇳🇿 New Zealand. It has to come from the same eShop as your Switch game.',
+    );
+  });
+
   it('says how much the upgrade route saves when it beats the Edition anywhere', () => {
     const s = upgradeSummary(
       item({
