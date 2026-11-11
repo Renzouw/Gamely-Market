@@ -107,3 +107,29 @@ describe('alerts', () => {
     expect(plans.map((x) => x.kind)).toContain('sale');
   });
 });
+
+describe('a store that blocks us', () => {
+  it('is left alone after an "Access Denied" page, and the first answer that gets through ends the pause', async () => {
+    const { request, forgetPauses, HostPausedError } = await import('../src/sources/http');
+    forgetPauses();
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => (calls++, new Response('<HTML>Access Denied</HTML>', { status: 403, headers: { 'content-type': 'text/html' } }))));
+    await expect(request('https://api.ec.nintendo.com/v1/price?country=GB')).rejects.toThrow('HTTP 403');
+    await expect(request('https://api.ec.nintendo.com/v1/price?country=JP')).rejects.toBeInstanceOf(HostPausedError);
+    expect(calls).toBe(1); // the second one never went out
+    // Other stores carry on
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    await expect(request('https://store.steampowered.com/api/x')).resolves.toBeDefined();
+    forgetPauses();
+  });
+
+  it('isn’t triggered by an API that says no with data (an expired search key)', async () => {
+    const { request, forgetPauses } = await import('../src/sources/http');
+    forgetPauses();
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => (calls++, new Response('{"message":"Invalid API key"}', { status: 403, headers: { 'content-type': 'application/json' } }))));
+    await expect(request('https://u3b6gr4ua3-dsn.algolia.net/1/indexes/x/query')).rejects.toThrow('HTTP 403');
+    await expect(request('https://u3b6gr4ua3-dsn.algolia.net/1/indexes/x/query')).rejects.toThrow('HTTP 403');
+    expect(calls).toBe(2);
+  });
+});

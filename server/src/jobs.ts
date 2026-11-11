@@ -12,6 +12,9 @@ import { chunk } from './sources/http';
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
 /** Keep the tables that grow forever in check. Alerts older than 60 days aren't shown anywhere. */
+/** JavaScript memory in use, logged after each job so a slow climb toward the cap shows early */
+const heapMb = () => Math.round(process.memoryUsage().heapUsed / 1048576);
+
 export function prune(db: Db, now = Date.now()) {
   const cutoff = now - 60 * 24 * 3600_000;
   run(db, 'DELETE FROM notifications WHERE created_at < ?', cutoff);
@@ -162,7 +165,7 @@ export function startScheduler(jobs: ReturnType<typeof createJobs>) {
       const t0 = Date.now();
       try {
         await job.run();
-        if (job.name !== 'dispatch') log(`job ${job.name} done in ${Date.now() - t0}ms`);
+        if (job.name !== 'dispatch') log(`job ${job.name} done in ${Date.now() - t0}ms · ${heapMb()} MB in use`);
       } catch (e) {
         log(`job ${job.name} failed:`, e instanceof Error ? e.message : e);
       } finally {
@@ -180,7 +183,7 @@ export function startScheduler(jobs: ReturnType<typeof createJobs>) {
       running.add(job.name);
       try {
         await job.run();
-        log(`job ${job.name} done (startup)`);
+        log(`job ${job.name} done (startup) · ${heapMb()} MB in use`);
       } catch (e) {
         log(`job ${job.name} failed at startup:`, e instanceof Error ? e.message : e);
       } finally {

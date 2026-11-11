@@ -20,8 +20,12 @@ const serverDir = join(root, 'server');
 const dataDir = join(serverDir, 'data');
 const logFile = join(dataDir, 'server.log');
 const pidFile = join(dataDir, 'server.pid');
+// Windows only: the process that restarts the server if it stops (scripts/supervise.mjs)
+const supervisorPidFile = join(dataDir, 'supervisor.pid');
+const errLog = join(dataDir, 'server.err.log');
 const node = process.execPath;
-const nodeArgs = ['--env-file-if-exists=.env', '--max-old-space-size=256', '--disable-warning=ExperimentalWarning', 'dist/server.mjs', `--log-file=${logFile}`];
+// 512 MB of JavaScript memory at most (the database cache comes on top). 256 ran out on 2026-11-11.
+const nodeArgs = ['--env-file-if-exists=.env', '--max-old-space-size=512', '--disable-warning=ExperimentalWarning', 'dist/server.mjs', `--log-file=${logFile}`];
 const LABEL = 'com.gamely.server';
 const action = process.argv[2] ?? 'status';
 const os = platform();
@@ -36,9 +40,9 @@ const windowsLauncher = join(process.env.APPDATA ?? '', 'Microsoft', 'Windows', 
 const macPlist = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 const linuxUnit = join(homedir(), '.config', 'systemd', 'user', 'gamely-server.service');
 
-function runningPid() {
-  if (!existsSync(pidFile)) return undefined;
-  const pid = Number(readFileSync(pidFile, 'utf8'));
+function runningPid(file = pidFile) {
+  if (!existsSync(file)) return undefined;
+  const pid = Number(readFileSync(file, 'utf8'));
   try {
     process.kill(pid, 0);
     return pid;
@@ -54,6 +58,16 @@ function build() {
 }
 
 function stopRunning() {
+  // The supervisor first, or it would start the server again straight away
+  const sup = runningPid(supervisorPidFile);
+  if (sup) {
+    try {
+      process.kill(sup);
+    } catch {
+      // already gone
+    }
+  }
+  rmSync(supervisorPidFile, { force: true });
   const pid = runningPid();
   if (pid) {
     try {
@@ -72,24 +86,31 @@ const installedPath = () => (os === 'win32' ? windowsLauncher : os === 'darwin' 
 
 const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/**
+ * The Startup-folder .vbs: runs the supervisor (which runs the server and restarts it if it
+ * stops) with no window. Every argument is quoted, so paths with spaces work.
+ */
+function writeWindowsLauncher() {
+  const quote = (a) => `"${a}"`;
+  const cmd = [quote(node), quote(join(root, 'scripts', 'supervise.mjs')), quote(serverDir), quote(dataDir), ...nodeArgs.map(quote)].join(' ');
+  const vbs = [
+    "' Starts the Gamely price server in the background when you log in, and keeps it running.",
+    "' Remove with: npm run autostart:off",
+    'Set sh = CreateObject("WScript.Shell")',
+    `sh.CurrentDirectory = "${serverDir}"`,
+    `sh.Run "${cmd.replace(/"/g, '""')}", 0, False`,
+    '',
+  ].join('\r\n');
+  mkdirSync(dirname(windowsLauncher), { recursive: true });
+  writeFileSync(windowsLauncher, vbs);
+}
+
 function on() {
   build();
   mkdirSync(dataDir, { recursive: true });
   stopRunning();
   if (os === 'win32') {
-    // A .vbs runs the server with no window. Every argument is quoted, so paths with spaces work.
-    const quote = (a) => `"${a}"`;
-    const cmd = [quote(node), ...nodeArgs.map(quote)].join(' ');
-    const vbs = [
-      "' Starts the Gamely price server in the background when you log in.",
-      "' Remove with: npm run autostart:off",
-      'Set sh = CreateObject("WScript.Shell")',
-      `sh.CurrentDirectory = "${serverDir}"`,
-      `sh.Run "${cmd.replace(/"/g, '""')}", 0, False`,
-      '',
-    ].join('\r\n');
-    mkdirSync(dirname(windowsLauncher), { recursive: true });
-    writeFileSync(windowsLauncher, vbs);
+    writeWindowsLauncher();
     spawn('wscript.exe', [windowsLauncher], { detached: true, stdio: 'ignore' }).unref();
     say(`✓ Added to your Startup folder:\n  ${windowsLauncher}`);
   } else if (os === 'darwin') {
@@ -176,6 +197,8 @@ function restart() {
   build();
   if (os === 'win32') {
     stopRunning();
+    // Rewritten each time, so an older launcher picks up the supervisor and memory settings
+    writeWindowsLauncher();
     spawn('wscript.exe', [windowsLauncher], { detached: true, stdio: 'ignore' }).unref();
   } else if (os === 'darwin') {
     const r = spawnSync('launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${LABEL}`], { stdio: 'inherit' });
@@ -192,6 +215,11 @@ function status() {
   const pid = runningPid();
   say(`Auto-start: ${installed ? 'on' : 'off'}`);
   say(`Server:     ${pid ? `running (process ${pid})` : 'not running'}`);
+  if (os === 'win32') say(`Restarts:   ${runningPid(supervisorPidFile) ? 'on (the server is started again if it stops)' : 'off'}`);
+  if (existsSync(errLog) && readFileSync(errLog, 'utf8').trim()) {
+    const lines = readFileSync(errLog, 'utf8').trimEnd().split('\n').slice(-5);
+    say(`\nLast error output (${errLog}):\n${lines.map((l) => `  ${l}`).join('\n')}`);
+  }
   if (existsSync(logFile)) {
     const lines = readFileSync(logFile, 'utf8').trimEnd().split('\n').slice(-5);
     say(`\nLast log lines (${logFile}):\n${lines.map((l) => `  ${l}`).join('\n')}`);

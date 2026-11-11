@@ -39,9 +39,40 @@ export interface RequestOpts {
 
 const UA = 'GamelyPriceTracker/1.0';
 
+/**
+ * A store that refuses us outright (403: its CDN has blocked this address, usually for
+ * sending too many requests) gets left alone for a while: hammering it keeps the block
+ * going. 30 minutes, doubling up to 6 hours while it keeps refusing; the first answer
+ * that gets through ends the pause. Prices already stored stay as they are meanwhile.
+ */
+const PAUSE_FIRST = 30 * 60_000;
+const PAUSE_MAX = 6 * 3600_000;
+const paused = new Map<string, { until: number; wait: number }>();
+
+export class HostPausedError extends Error {
+  constructor(host: string, until: number) {
+    super(`${host} refused our requests (HTTP 403), so it is left alone until ${new Date(until).toISOString().slice(11, 16)} UTC`);
+  }
+}
+
+/** For tests */
+export function forgetPauses() {
+  paused.clear();
+}
+
+function pauseHost(host: string, now = Date.now()) {
+  const before = paused.get(host);
+  if (before && now < before.until) return; // already paused (requests that were in flight)
+  const wait = before ? Math.min(before.wait * 2, PAUSE_MAX) : PAUSE_FIRST;
+  paused.set(host, { until: now + wait, wait });
+  console.log(`${new Date(now).toISOString()} ${host} refused our requests (HTTP 403); pausing it for ${Math.round(wait / 60_000)} min`);
+}
+
 export async function request(url: string, opts: RequestOpts = {}): Promise<Response> {
   const { retries = 2, timeoutMs = 20_000, headers, ...init } = opts;
   const host = new URL(url).host;
+  const pause = paused.get(host);
+  if (pause && Date.now() < pause.until) throw new HostPausedError(host, pause.until);
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -54,7 +85,11 @@ export async function request(url: string, opts: RequestOpts = {}): Promise<Resp
         await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt);
         continue;
       }
+      // A CDN block answers with a web page; an API saying no (Algolia: key expired) answers with data
+      if (res.status === 403 && (res.headers.get('content-type') ?? '').includes('text/html')) pauseHost(host);
       if (!res.ok) throw new HttpError(res.status, url);
+      // Got through: whatever pause there was is over
+      if (pause) paused.delete(host);
       return res;
     } catch (e) {
       lastError = e;
