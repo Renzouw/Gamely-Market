@@ -1,5 +1,6 @@
 import { config } from '../../config';
 import { getJson, getText, qs } from '../http';
+import { JP_PAGE_SIZE } from '@shared/stores/nintendoRegions';
 import {
   ASIA_PAGE_SIZE,
   asiaCatalogPlan,
@@ -10,6 +11,9 @@ import {
   parseAsiaResponse,
   parseEshopAppId,
   parseJpResponse,
+  parseUpgradeResponse,
+  seaUpgradeQuery,
+  type UpgradeEntry,
   type AsiaGroup,
   type AsiaResponse,
   type JpResponse,
@@ -28,6 +32,17 @@ export async function fetchJpPage(page: number): Promise<{ entries: RegionEntry[
 /** One page (300 games) of Southeast Asia's downloadable games, newest first. Same format as Japan. */
 export async function fetchSeaPage(page: number): Promise<{ entries: RegionEntry[]; total: number; count: number }> {
   return parseJpResponse(await getJson<JpResponse>(`${config.upstream.nintendoSeaSearch}?${qs(jpCatalogQuery(page))}`));
+}
+
+/** Every Switch 2 Edition upgrade pack Southeast Asia sells (about 100, one request). */
+export async function fetchSeaUpgrades(): Promise<UpgradeEntry[]> {
+  const out: UpgradeEntry[] = [];
+  for (let page = 0; page < 10; page++) {
+    const res = parseUpgradeResponse(await getJson<JpResponse>(`${config.upstream.nintendoSeaSearch}?${qs(seaUpgradeQuery(page))}`));
+    out.push(...res.entries);
+    if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
+  }
+  return out;
 }
 
 /** Every game Nintendo's Hong Kong or Korea site lists, in two or three requests. */

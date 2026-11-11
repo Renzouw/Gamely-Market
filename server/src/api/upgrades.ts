@@ -10,9 +10,9 @@ const round = (n: number) => Math.round(n * 100) / 100;
  * Switch 2 Editions with an upgrade pack, and what each route costs: the
  * Edition, or the Switch game plus the upgrade. An upgrade pack only works
  * with a game bought from the same eShop, so both routes are priced within
- * one country at a time. Upgrade packs have Europe's IDs, so the countries
- * that share Europe's catalog (Europe, Oceania, South Africa) are the ones
- * with all three prices.
+ * one country at a time. Upgrade packs come from Europe's catalog, plus
+ * Southeast Asia's (the Philippines, Singapore, Malaysia, Thailand), so
+ * those are the countries with all three prices.
  */
 export function listUpgrades(db: Db, q: { home: string; currency: string; regions: string[] }, fx: ApiFx | undefined, now = Date.now()): ApiUpgradeList {
   const { regions } = effectiveRegions('switch', q.home, q.regions);
@@ -83,6 +83,7 @@ export function listUpgrades(db: Db, q: { home: string; currency: string; region
       base: rowToGame(base, nsuids.get(base.id)),
       pack: rowToGame(pack, nsuids.get(pack.id)),
       best,
+      home: countries.find((c) => c.country === q.home),
       countries,
     });
   }

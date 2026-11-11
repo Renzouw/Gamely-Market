@@ -1,14 +1,23 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiUpgradeList } from '@shared/api';
 import { listingKind, withoutEdition } from '@shared/listing';
 import { euDocToGame } from '@shared/stores/nintendo';
+import { parseUpgradeResponse } from '@shared/stores/nintendoRegions';
 import { all, openDb, run, type Db } from '../src/db';
 import { createApp } from '../src/api/app';
 import { syncEuCatalog } from '../src/ingest/catalog';
 import { refreshSwitchPrices } from '../src/ingest/prices';
+import { invalidateFx } from '../src/ingest/fx';
+import { linkUpgradePacks, syncRegionCatalogs } from '../src/ingest/regions';
+
+// Real Southeast Asia search results, saved 2026-11-11: the catalog, and a search for upgrade packs
+// (Zelda's and Just Dance's, plus two add-ons that only have "upgrade" in the name)
+const fixture = (name: string) => JSON.parse(readFileSync(join(__dirname, 'fixtures', name), 'utf8'));
+const phCatalog = fixture('ph-search.json');
+const phUpgrades = fixture('ph-upgrades.json');
 
 // Europe's real listings for Tears of the Kingdom (2026-11-11): the Switch 2 Edition is listed
 // under the upgrade pack's ID first, then the full Edition's.
@@ -28,6 +37,12 @@ const GB: Record<string, { regular: string; sale?: string }> = {
   '70010000063715': { regular: '59.99', sale: '29.99' },
   '70050000056808': { regular: '7.99' },
   '70010000096822': { regular: '66.99' },
+};
+// The Philippines (real prices on 2026-11-11): the upgrade costs exactly the difference
+const PH: Record<string, { regular: string; sale?: string }> = {
+  '70010000108762': { regular: '3490' },
+  '70050000063663': { regular: '390' },
+  '70010000108820': { regular: '3880' },
 };
 
 describe('reading listings', () => {
@@ -50,22 +65,26 @@ describe('reading listings', () => {
 let db: Db;
 beforeEach(() => {
   db = openDb(':memory:');
+  invalidateFx(); // rates are cached for a minute; each test brings its own
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
       const u = new URL(url);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
       if (u.host === 'searching.nintendo-europe.com') return json({ response: { numFound: 3, docs: [BASE, EDITION, FRIEND] } });
+      if (u.host === 'search.nintendo.jp' && u.pathname.startsWith('/nintendo_soft_ph/')) return json(u.searchParams.get('q') ? phUpgrades : phCatalog);
       if (u.host === 'api.ec.nintendo.com') {
         const ids = u.searchParams.get('ids')!.split(',');
+        const country = u.searchParams.get('country');
+        const [table, cur] = country === 'PH' ? [PH, 'PHP'] : country === 'GB' ? [GB, 'GBP'] : [{} as typeof GB, 'EUR'];
         return json({
           prices: ids.map((id) =>
-            GB[id]
+            table[id]
               ? {
                   title_id: Number(id),
                   sales_status: 'onsale',
-                  regular_price: { currency: 'GBP', raw_value: GB[id].regular },
-                  ...(GB[id].sale ? { discount_price: { currency: 'GBP', raw_value: GB[id].sale, end_datetime: '2099-01-01T00:00:00Z' } } : {}),
+                  regular_price: { currency: cur, raw_value: table[id].regular },
+                  ...(table[id].sale ? { discount_price: { currency: cur, raw_value: table[id].sale, end_datetime: '2099-01-01T00:00:00Z' } } : {}),
                 }
               : { title_id: Number(id), sales_status: 'not_found' },
           ),
@@ -96,6 +115,32 @@ describe('upgrade packs', () => {
     const [item] = body.items;
     expect([item.base.key, item.pack.key, item.edition.key]).toEqual(['sw:eu:70010000063715', 'sw:eu:70050000056808', 'sw:eu:70010000096822']);
     expect(item.best).toMatchObject({ country: 'GB', base: 29.99, pack: 7.99, edition: 66.99, baseSale: true, converted: { combo: 37.98, saving: 29.01 } });
+  });
+
+  it('reads Southeast Asia’s Switch 2 Edition upgrade packs, and only those', () => {
+    expect(parseUpgradeResponse(phUpgrades).entries).toEqual([
+      { nsuid: '70050000078496', codeKey: 'BEEA8FZ', title: 'Just Dance - Nintendo Switch™ 2 Edition Upgrade Pack' },
+      { nsuid: '70050000063663', codeKey: 'BEEAXN7', title: 'The Legend of Zelda: Tears of the Kingdom – Nintendo Switch 2 Edition upgrade pack' },
+    ]);
+  });
+
+  it('ties the Philippine upgrade pack to ours by the Edition’s code, and works out the trick there', async () => {
+    await syncEuCatalog(db, { platform: 'switch2', onSaleOnly: false });
+    await syncRegionCatalogs(db);
+    // The Edition and the Switch game linked in Southeast Asia (live, the Hong Kong application-ID step does this)
+    run(db, "INSERT INTO game_ids (grp, nsuid, game_id, match_method) VALUES ('sea','70010000108820','sw:eu:70010000096822','product_code'), ('sea','70010000108762','sw:eu:70010000063715','product_code')");
+    expect(await linkUpgradePacks(db)).toEqual(['sw:eu:70050000056808']);
+    expect(all(db, "SELECT nsuid FROM game_ids WHERE game_id = 'sw:eu:70050000056808' AND grp = 'sea'")).toEqual([{ nsuid: '70050000063663' }]);
+    // Run again: nothing new
+    expect(await linkUpgradePacks(db)).toEqual([]);
+
+    run(db, "INSERT INTO fx (currency, per_usd, source, as_of, fetched_at) VALUES ('USD',1,'ecb','2026-11-11',0), ('GBP',0.8,'ecb','2026-11-11',0), ('PHP',58,'ecb','2026-11-11',0)");
+    await refreshSwitchPrices(db, ['sw:eu:70010000063715', 'sw:eu:70050000056808', 'sw:eu:70010000096822'], ['GB', 'PH']);
+    const body = (await (await createApp(db, {}).request('/v1/upgrades?home=PH&currency=PHP&regions=GB,PH')).json()) as ApiUpgradeList;
+    const [item] = body.items;
+    expect(item.home).toMatchObject({ country: 'PH', base: 3490, pack: 390, edition: 3880, converted: { combo: 3880, saving: 0 } });
+    // The best trick is still the British sale
+    expect(item.best?.country).toBe('GB');
   });
 
   it('unhooks an upgrade pack ID that was taken for a game’s own, with the prices it caused', () => {

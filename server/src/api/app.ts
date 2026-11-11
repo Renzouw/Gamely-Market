@@ -46,6 +46,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'nintendo-hongkong-catalog': 'Nintendo Hong Kong catalog',
   'nintendo-korea-catalog': 'Nintendo Korea catalog',
   'nintendo-sea-catalog': 'Nintendo Southeast Asia catalog',
+  'nintendo-sea-upgrades': 'Nintendo Southeast Asia upgrade packs',
   'nintendo-hk-titles': 'Nintendo Hong Kong title pages',
   'steam-prices': 'Steam prices',
   'steam-specials': 'Steam specials',

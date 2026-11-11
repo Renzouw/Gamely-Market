@@ -87,6 +87,8 @@ export interface ApiUpgrade {
   pack: ApiGame;
   /** Where the Switch game plus upgrade saves the most against the Edition (or costs least, when the Edition isn't sold whole) */
   best?: ApiUpgradeCountry;
+  /** The same sums in the caller's own eShop, when it sells all of it */
+  home?: ApiUpgradeCountry;
   countries: ApiUpgradeCountry[];
 }
 

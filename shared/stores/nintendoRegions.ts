@@ -82,6 +82,39 @@ export function parseJpItem(it: JpItem): RegionEntry | undefined {
   return { nsuid, platform, codeKey: key, title: it[JP_FIELDS.title] ?? '', releaseDate: isoDay(it[JP_FIELDS.date]) };
 }
 
+/**
+ * Southeast Asia's Switch 2 Edition upgrade packs. The catalog query leaves
+ * add-ons out, so they're searched for by name; each carries its Edition's
+ * product code, which is how it's tied to the Edition.
+ */
+export interface UpgradeEntry {
+  nsuid: string;
+  /** The Edition's key, e.g. "BEEAXN7" */
+  codeKey: string;
+  title: string;
+}
+
+export function seaUpgradeQuery(page: number) {
+  return { q: 'upgrade pack', limit: JP_PAGE_SIZE, page: page + 1 };
+}
+
+/** Add-on IDs start 7005. The name check leaves out other add-ons with "upgrade" in them (item packs, deluxe bundles). */
+const ADD_ON_NSUID = /^7005\d{10}$/;
+const SWITCH2_UPGRADE = /switch(™)?\s*2\s*edition.*upgrade\s+pack/i;
+
+export function parseUpgradeResponse(data: JpResponse): { entries: UpgradeEntry[]; total: number; count: number } {
+  const items = data.result?.items ?? [];
+  const entries: UpgradeEntry[] = [];
+  for (const it of items) {
+    const nsuid = it[JP_FIELDS.nsuid];
+    const title = it[JP_FIELDS.title] ?? '';
+    if (!nsuid || !ADD_ON_NSUID.test(nsuid) || JP_HARDWARE[it[JP_FIELDS.hardware] ?? ''] !== 'switch2' || !SWITCH2_UPGRADE.test(title)) continue;
+    const key = codeKey('switch2', it[JP_FIELDS.code]);
+    if (key) entries.push({ nsuid, codeKey: key, title });
+  }
+  return { entries, total: data.result?.total ?? items.length, count: items.length };
+}
+
 export function parseJpResponse(data: JpResponse): { entries: RegionEntry[]; total: number; count: number } {
   const items = data.result?.items ?? [];
   return { entries: items.map(parseJpItem).filter((e): e is RegionEntry => !!e), total: data.result?.total ?? items.length, count: items.length };

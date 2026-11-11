@@ -2,7 +2,7 @@ import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { memo, useCallback, useMemo } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
-import type { ApiUpgrade } from '@shared/api';
+import type { ApiUpgrade, ApiUpgradeCountry } from '@shared/api';
 import { withoutEdition } from '@shared/listing';
 import { titleKey } from '@shared/match';
 import { formatMoney } from '@shared/pricing';
@@ -18,8 +18,24 @@ import { Cover, EmptyState, RowSkeleton, Tap } from './ui';
  * country where that route saves the most. An upgrade pack only works with
  * a game from the same eShop, so each comparison stays within one country.
  */
+/** The trick in the caller's own eShop: "In 🇵🇭: ₱3,490 + ₱390 = ₱3,880, saves ₱0" */
+function HomeLine({ home, currency }: { home: ApiUpgradeCountry; currency: string }) {
+  const r = regionLabel(home.country);
+  const c = home.converted;
+  const money = (mine: number | undefined, local: number) => (c && mine !== undefined ? formatMoney(mine, currency) : formatMoney(local, home.currency));
+  const saving = c?.saving;
+  const verdict = saving === undefined ? '' : saving >= 0.01 ? `, saves ${formatMoney(saving, currency)}` : saving <= -0.01 ? `, ${formatMoney(-saving, currency)} more than the Edition` : ', same as the Edition';
+  return (
+    <Text variant="footnote" tone={saving !== undefined && saving >= 0.01 ? 'signal' : 'subtle'} numberOfLines={2}>
+      In your eShop {r.flag}: {money(c?.base, home.base)} + {money(c?.pack, home.pack)} = {money(c?.combo, home.base + home.pack)}
+      {verdict}
+    </Text>
+  );
+}
+
 const UpgradeRow = memo(function UpgradeRow({ item, currency }: { item: ApiUpgrade; currency: string }) {
   const b = item.best;
+  const home = item.home;
   const c = b?.converted;
   // In the caller's currency when there's a rate, otherwise in the country's own
   const money = (mine: number | undefined, local: number) => (c && mine !== undefined ? formatMoney(mine, currency) : formatMoney(local, b!.currency));
@@ -67,6 +83,7 @@ const UpgradeRow = memo(function UpgradeRow({ item, currency }: { item: ApiUpgra
             </Text>
           </>
         ) : null}
+        {home && home.country !== b?.country ? <HomeLine home={home} currency={currency} /> : null}
       </View>
       <View style={styles.verdict}>
         <Text variant="priceS" tone={verdict.tone} numberOfLines={1}>

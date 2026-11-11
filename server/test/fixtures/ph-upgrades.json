@@ -1,0 +1,47 @@
+{
+ "result": {
+  "total": 4,
+  "items": [
+   {
+    "id": "70050000078496",
+    "nsuid": "70050000078496",
+    "title": "Just Dance - Nintendo Switch™ 2 Edition Upgrade Pack",
+    "icode": "A8FZA",
+    "hard": "05_BEE",
+    "sform": "DLC",
+    "price": 0,
+    "current_price": 0
+   },
+   {
+    "id": "70070000040995",
+    "nsuid": "70070000040995",
+    "title": "Tales of Eternia Remastered - Deluxe Upgrade Pack",
+    "icode": "ABK2A",
+    "hard": "05_BEE",
+    "sform": "DL_DLC",
+    "price": 1249,
+    "current_price": 1249
+   },
+   {
+    "id": "70050000075909",
+    "nsuid": "70050000075909",
+    "title": "Granblue Fantasy: Relink - Endless Ragnarok Sigil Upgrade Items Pack 1",
+    "icode": "AAGZA",
+    "hard": "05_BEE",
+    "sform": "DLC",
+    "price": 71,
+    "current_price": 71
+   },
+   {
+    "id": "70050000063663",
+    "nsuid": "70050000063663",
+    "title": "The Legend of Zelda: Tears of the Kingdom – Nintendo Switch 2 Edition upgrade pack",
+    "icode": "AXN7A",
+    "hard": "05_BEE",
+    "sform": "DLC",
+    "price": 390,
+    "current_price": 390
+   }
+  ]
+ }
+}
