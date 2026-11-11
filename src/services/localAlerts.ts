@@ -66,7 +66,7 @@ export async function runLocalCheck(): Promise<{ checked: number; alerted: numbe
     const sum = summarize(w.game.platform === 'steam' ? p.filter((x) => x.country === home) : p, { homeCurrency: s.homeCurrency, homeRegion: home, fx });
     // No price we can read in your currency (a store didn't answer, no exchange rate yet): keep the last good numbers
     if (sum.best?.converted === undefined) continue;
-    const alert = quiet ? undefined : planLocalAlert(w, sum, s.homeCurrency, lowsBefore.get(w.game.key));
+    const alert = quiet ? undefined : planLocalAlert(w, sum, s.homeCurrency, lowsBefore.get(w.game.key), Date.now(), fx);
     const sent = alert ? [...w.sent, alert.key] : w.sent;
     if (alert) {
       useLocalActivity.getState().add({ kind: alert.kind, title: alert.title, body: alert.body, gameId: w.game.key, image: w.game.image });
@@ -77,7 +77,14 @@ export async function runLocalCheck(): Promise<{ checked: number; alerted: numbe
     }
     updates.push({
       key: w.game.key,
-      last: { best: sum.best?.converted, country: sum.best?.country, onSale: !!sum.best?.sale, homeOnSale: !!sum.home?.sale, checkedAt: Date.now() },
+      last: {
+        best: sum.best?.converted,
+        bestLocal: sum.best ? { amount: sum.best.current.amount, currency: sum.best.current.currency } : undefined,
+        country: sum.best?.country,
+        onSale: sum.ranked.some((p) => p.sale),
+        homeOnSale: !!sum.home?.sale,
+        checkedAt: Date.now(),
+      },
       sent,
     });
   }

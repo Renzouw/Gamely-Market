@@ -167,7 +167,9 @@ const SERVER_MATCHED = ['americas', 'japan', 'hongkong', 'korea', 'sea'] as cons
 
 /** Countries this person compares in those groups. */
 function serverMatchedRegions(ctx: DirectContext) {
-  return SWITCH_REGIONS.filter((r) => (SERVER_MATCHED as readonly string[]).includes(r.group) && ctx.switchRegions.includes(r.code));
+  // Home always counts, ticked or not (as on the server)
+  const wanted = new Set([...ctx.switchRegions, ctx.home]);
+  return SWITCH_REGIONS.filter((r) => (SERVER_MATCHED as readonly string[]).includes(r.group) && wanted.has(r.code));
 }
 
 /* ---------------------------------- Steam ---------------------------------- */

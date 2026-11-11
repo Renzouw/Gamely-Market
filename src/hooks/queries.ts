@@ -38,6 +38,12 @@ function useScreenQuery() {
   return { live, mode: live ?? last, focused };
 }
 
+/**
+ * Phone-only lists work out prices in your currency themselves, so one made before the
+ * exchange rates arrived is redone when they do. (The server's lists don't depend on them.)
+ */
+const rateKey = (mode: DataMode | undefined, fx: unknown) => (mode === 'direct' && !fx ? 'no-rates' : 'rates');
+
 /** Search results and game pages are cheap to fetch again, so don't hold them in memory for a day */
 const SHORT_GC = 10 * 60_000;
 
@@ -90,7 +96,7 @@ export function useDeals(platform: Platform, sort: DealSort, filters: DealFilter
   const fx = useFx().data;
   const regions = platform === 'steam' ? p.steamRegions : p.switchRegions;
   const q = useInfiniteQuery({
-    queryKey: ['deals', platform, sort, filters, p.home, p.currency, regions, mode],
+    queryKey: ['deals', platform, sort, filters, p.home, p.currency, regions, mode, rateKey(mode, fx)],
     initialPageParam: undefined as string | undefined,
     // Changing sort or a filter keeps the old list on screen until the new one arrives,
     // but switching platform never shows the previous platform's games
@@ -109,7 +115,7 @@ export function useDeals(platform: Platform, sort: DealSort, filters: DealFilter
 
 export type DirectoryPlatform = Platform | 'all-switch';
 
-export function useDirectory(platform: DirectoryPlatform, query: string, options: DirectoryOptions = {}) {
+export function useDirectory(platform: DirectoryPlatform, query: string, options: DirectoryOptions = {}, enabled = true) {
   const p = usePrefs();
   const { live, mode, focused } = useScreenQuery();
   const fx = useFx().data;
@@ -118,13 +124,13 @@ export function useDirectory(platform: DirectoryPlatform, query: string, options
   // Steam search has no sort or filters: it charges your account's country anyway
   const opts = platform === 'steam' ? {} : options;
   const q = useInfiniteQuery({
-    queryKey: ['games', platform, term, p.home, p.currency, regions, opts, mode],
+    queryKey: ['games', platform, term, p.home, p.currency, regions, opts, mode, rateKey(mode, fx)],
     initialPageParam: undefined as string | undefined,
     // Keep results visible while typing, within the same platform
     placeholderData: keepSamePlatform(platform),
     staleTime: 5 * 60_000,
     gcTime: SHORT_GC,
-    enabled: !!live && (platform !== 'steam' || term.length >= 2),
+    enabled: enabled && !!live && (platform !== 'steam' || term.length >= 2),
     subscribed: focused,
     refetchOnWindowFocus: live !== 'direct',
     queryFn: ({ pageParam, signal }) => getGames(platform, term, regions, opts, fx, pageParam, mode, signal),
@@ -154,7 +160,7 @@ export function useGameDetail(key: string) {
   };
 
   return useQuery<ApiGameDetail>({
-    queryKey: ['game', key, p.home, p.currency, regions, mode],
+    queryKey: ['game', key, p.home, p.currency, regions, mode, rateKey(mode, fx)],
     enabled: !!live,
     subscribed: focused,
     staleTime: 60_000,
@@ -196,7 +202,7 @@ export function useWatches() {
   const list = useMemo(() => Object.values(items).sort((a, b) => b.createdAt - a.createdAt), [items]);
   const keys = list.map((w) => w.game.key).join(',');
   const prices = useQuery({
-    queryKey: ['watches', mode, keys, p.home, p.currency, p.switchRegions, p.steamRegions],
+    queryKey: ['watches', mode, keys, p.home, p.currency, p.switchRegions, p.steamRegions, rateKey(mode, fx)],
     enabled: !!live && list.length > 0,
     subscribed: focused,
     staleTime: 60_000,

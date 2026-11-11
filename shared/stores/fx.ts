@@ -44,7 +44,9 @@ export function mergeFx(ecb: FrankfurterResponse, market: ErApiResponse | undefi
     if (rate > 0) out.set(cur, { currency: cur, perUsd: rate, source: 'ecb', asOf });
   }
   if (market?.result === 'success' && market.rates) {
-    const marketDate = market.time_last_update_utc ? new Date(market.time_last_update_utc).toISOString().slice(0, 10) : asOf;
+    // A date some engines can't read (RFC 2822 on Hermes) mustn't throw away every rate
+    const t = market.time_last_update_utc ? Date.parse(market.time_last_update_utc) : NaN;
+    const marketDate = Number.isNaN(t) ? asOf : new Date(t).toISOString().slice(0, 10);
     for (const cur of wanted) {
       const rate = market.rates[cur];
       if (!out.has(cur) && rate && rate > 0) out.set(cur, { currency: cur, perUsd: rate, source: 'market', asOf: marketDate });

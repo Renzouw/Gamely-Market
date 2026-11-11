@@ -25,7 +25,8 @@ import { syncWatches } from '../services/watchSync';
 import { useWatchlist } from '../state/watchlist';
 import { loadLinks, syncLinks } from '../state/links';
 import { BackButton } from '../components/ui';
-import { Toast } from '../components/Toast';
+import { getFx } from '../api/data';
+import { showToast, Toast } from '../components/Toast';
 import { UpdateToast } from '../components/UpdateToast';
 import { useNotificationTaps } from '../hooks/useNotificationTaps';
 import { reconcilePermission, syncDevice } from '../services/push';
@@ -135,9 +136,14 @@ function AppEffects() {
       useSettings.subscribe((s, prev) => {
         if (s.homeCurrency === prev.homeCurrency) return;
         if (!useSettings.persist.hasHydrated() || !useWatchlist.persist.hasHydrated()) return;
-        const fx = qc.getQueryData<FxRates>(['fx']);
-        const rate = fx ? convert(1, prev.homeCurrency, s.homeCurrency, fx) : undefined;
-        if (rate) useWatchlist.getState().convertTargets(rate);
+        void (async () => {
+          // Rates may not have loaded yet: fetch them rather than leave targets in the old currency
+          const fx = qc.getQueryData<FxRates>(['fx']) ?? (await qc.fetchQuery({ queryKey: ['fx'], queryFn: () => getFx() }).catch(() => undefined));
+          const rate = fx ? convert(1, prev.homeCurrency, s.homeCurrency, fx) : undefined;
+          const hadTargets = Object.values(useWatchlist.getState().items).some((w) => w.target !== undefined);
+          useWatchlist.getState().convertTargets(rate);
+          if (!rate && hadTargets) showToast('Target prices were removed: there was no exchange rate to convert them to ' + s.homeCurrency + '.');
+        })();
       }),
     [qc],
   );

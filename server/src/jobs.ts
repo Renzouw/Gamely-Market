@@ -102,7 +102,7 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     const linked = await linkRegions(db);
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong, Korea or Southeast Asia`);
     // Upgrade packs filed for the first time have no price yet; nor do ones just found in Southeast Asia
-    const packs = all<{ id: string }>(db, "SELECT pack_id AS id FROM upgrades u WHERE NOT EXISTS (SELECT 1 FROM prices p WHERE p.game_id = u.pack_id)").map((r) => r.id);
+    const packs = all<{ id: string }>(db, "SELECT pack_id AS id FROM upgrades u WHERE NOT EXISTS (SELECT 1 FROM price_history h WHERE h.game_id = u.pack_id)").map((r) => r.id);
     const seaPacks = await linkUpgradePacks(db);
     if (seaPacks.length) log(`upgrade packs: ${seaPacks.length} found in Southeast Asia`);
     await refresh([...new Set([...usUnpriced, ...linked, ...packs, ...seaPacks])]);

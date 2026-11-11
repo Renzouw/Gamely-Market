@@ -105,6 +105,13 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
    * game is never refreshed twice at once, and a game is tried at most once
    * per refresh window, so page views can't be used to hammer the stores.
    */
+  // Rebuilding the deals caches is costly; a game page's refresh triggers it at most once a minute
+  let lastBump = 0;
+  const pricesChanged = () => {
+    if (Date.now() - lastBump < 60_000) return;
+    lastBump = Date.now();
+    opts.onPricesChanged?.();
+  };
   const inFlight = new Map<string, Promise<unknown>>();
   const lastTried = new Map<string, number>();
   async function refreshNow(ids: string[], timeoutMs: number) {
@@ -115,7 +122,7 @@ export function createApp(db: Db, opts: { onPricesChanged?: () => void } = {}) {
       due.forEach((id) => lastTried.set(id, now));
       if (lastTried.size > 100_000) for (const [k, t] of lastTried) if (now - t > config.refreshOnViewAfterMs) lastTried.delete(k);
       const job = refreshAndAlert(db, due)
-        .then(({ changes }) => changes.length && opts.onPricesChanged?.())
+        .then(({ changes }) => changes.length && pricesChanged())
         .catch(() => undefined)
         .finally(() => due.forEach((id) => inFlight.delete(id)));
       due.forEach((id) => inFlight.set(id, job));

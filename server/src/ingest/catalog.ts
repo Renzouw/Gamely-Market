@@ -71,6 +71,8 @@ export function ingestUpgradePack(db: Db, editionId: string, g: Game): string {
     storeUrl: g.storeUrl,
   });
   if (!known) attachNsuid(db, 'europe', pack, id, 'source');
+  // An upgrade pack isn't one of the store's popular games, whatever its listing used to be
+  run(db, 'UPDATE games SET rank = NULL WHERE id = ? AND rank IS NOT NULL', id);
   run(db, 'INSERT INTO upgrades (edition_id, pack_id) VALUES (?, ?) ON CONFLICT(edition_id) DO UPDATE SET pack_id = excluded.pack_id', editionId, id);
   return id;
 }

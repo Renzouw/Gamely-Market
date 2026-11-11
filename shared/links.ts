@@ -30,7 +30,7 @@ export function encodeLinks(rows: { europe: string; links: GameLinks }[]): strin
 /** Europe ID → that game's IDs in the other groups. */
 export function decodeLinks(text: string): Map<string, GameLinks> {
   const out = new Map<string, GameLinks>();
-  for (const line of text.split('\n')) {
+  for (const line of text.split(/\r?\n/)) {
     const [eu, ...rest] = line.split(',');
     if (!eu) continue;
     const links: GameLinks = {};

@@ -1,6 +1,7 @@
 import { titleKey } from '@shared/match';
 import type { ApiGame, ApiPrice } from '@shared/api';
 import type { Platform, RegionPrice, ShopGroup } from '@shared/types';
+import { switchRegion } from '@shared/regions';
 import { all, get, placeholders, run, tx, type Db } from './db';
 
 /** Nintendo's ID groups: games keep one NSUID per group. */
@@ -263,7 +264,8 @@ export function applyPrice(db: Db, gameId: string, p: RegionPrice, now = Date.no
 
   const current = sale ?? p.regular.amount;
   // Read the lowest so far before this price joins the history
-  const low = before && before.currency === after.currency ? lowSoFar(db, gameId, p.country, after.currency) : undefined;
+  // Also after a relisting (no row before, but history): coming back at an all-time low is a new low
+  const low = !before || before.currency === after.currency ? lowSoFar(db, gameId, p.country, after.currency) : undefined;
   const newLow = low !== undefined && current < low - 0.005;
   const priceMoved = !before || before.currency !== after.currency || !same(before.sale ?? before.regular, current) || !same(before.regular, after.regular);
   if (priceMoved) {
@@ -288,7 +290,21 @@ export const DELISTED = -1;
 
 export function removePrice(db: Db, gameId: string, country: string, now = Date.now()): PriceChange | undefined {
   const before = get<PriceRow>(db, 'SELECT * FROM prices WHERE game_id = ? AND country = ?', gameId, country);
-  if (!before) return undefined;
+  if (!before) {
+    // Never sold here: one marker, so jobs looking for never-priced games stop asking again
+    if (!get(db, 'SELECT 1 AS x FROM price_history WHERE game_id = ? AND country = ? LIMIT 1', gameId, country)) {
+      run(
+        db,
+        'INSERT OR IGNORE INTO price_history (game_id, country, t, currency, price, regular, discount) VALUES (?, ?, ?, ?, 0, 0, ?)',
+        gameId,
+        country,
+        now,
+        switchRegion(country)?.currency ?? '',
+        DELISTED,
+      );
+    }
+    return undefined;
+  }
   run(db, 'DELETE FROM prices WHERE game_id = ? AND country = ?', gameId, country);
   // Without this marker the history chart would keep treating the last price as available
   run(

@@ -135,9 +135,13 @@ export function regionLabel(code: string): { name: string; flag: string } {
 export const DEFAULT_SWITCH_REGIONS = SWITCH_REGIONS.map((r) => r.code);
 export const DEFAULT_STEAM_REGIONS = ['US', 'GB', 'DE', 'CA', 'AU', 'JP', 'BR', 'MX', 'AR', 'TR', 'IN', 'PL'];
 
+/** Countries where Steam charges euros although their eShop has its own currency. */
+const STEAM_EURO = new Set(['SE', 'DK', 'CZ']);
+
 /** Steam store country to browse deals in. Falls back to US if your home region isn't in the list. */
 export function steamStoreCountry(home: string): { code: string; currency: string } {
-  const r = steamByCode.get(home) ?? (SWITCH_REGIONS.some((x) => x.code === home && x.currency === 'EUR') ? steamByCode.get('DE') : undefined);
+  const euro = STEAM_EURO.has(home) || SWITCH_REGIONS.some((x) => x.code === home && x.currency === 'EUR');
+  const r = steamByCode.get(home) ?? (euro ? steamByCode.get('DE') : undefined);
   return r ? { code: r.code, currency: r.currency } : { code: 'US', currency: 'USD' };
 }
 

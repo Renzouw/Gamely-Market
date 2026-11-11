@@ -78,6 +78,15 @@ function dropMissing(db: Db, grp: RegionGroup, now: number) {
 }
 
 /**
+ * A whole-catalog read only counts when it came back whole. Forgetting listings
+ * after an empty or cut-short answer would make shared codes look unique (and so
+ * link the wrong listing), so it throws instead and the old catalog stays.
+ */
+function wholeOrThrow(grp: RegionGroup, items: number, total: number) {
+  if (!total || items < total * 0.98) throw new Error(`${grp} catalog came back short: ${items} of ${total}`);
+}
+
+/**
  * Refresh the regional catalogs. Hong Kong, Korea and Southeast Asia come
  * whole in a few requests. Japan is 50-odd heavy pages, so each run reads
  * the newest few and the whole list once a week.
@@ -97,12 +106,17 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
   // Southeast Asia: about 4,000 games, 14 pages, so the whole list every run
   try {
     let seen = 0;
+    let items = 0;
+    let total = 0;
     for (let page = 0; ; page++) {
       const res = await fetchSeaPage(page);
       saveEntries(db, 'sea', res.entries, now);
       seen += res.entries.length;
+      items += res.count;
+      total = res.total;
       if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
     }
+    wholeOrThrow('sea', items, total);
     dropMissing(db, 'sea', now);
     sourceOk(db, 'nintendo-sea-catalog', seen);
     // The first time its catalog arrives, every game is looked at again, not only those due this week
@@ -117,14 +131,19 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
   const full = isOverdue(db, 'jp-full-catalog', config.regions.fullEveryMs, now);
   let seen = 0;
   try {
+    let items = 0;
+    let total = 0;
     for (let page = 0; ; page++) {
       if (!full && page >= config.regions.recentPages) break;
       const res = await fetchJpPage(page);
       saveEntries(db, 'japan', res.entries, now);
       seen += res.entries.length;
+      items += res.count;
+      total = res.total;
       if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
     }
     if (full) {
+      wholeOrThrow('japan', items, total);
       dropMissing(db, 'japan', now);
       markRun(db, 'jp-full-catalog', now);
     }

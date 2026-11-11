@@ -124,7 +124,7 @@ function detail(digitalOnly: boolean | undefined, converted: string | undefined)
 const styles = StyleSheet.create({
   filters: { flexDirection: 'row', paddingHorizontal: GUTTER, paddingTop: space.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 64 },
-  eneba: { height: 38, paddingHorizontal: space.md },
+  eneba: { height: 44, paddingHorizontal: space.md },
   all: { marginHorizontal: GUTTER, marginTop: space.md },
   note: { paddingHorizontal: GUTTER + space.xs, marginTop: space.md },
 });

@@ -1,5 +1,5 @@
 import { config } from '../../config';
-import { getJson, getText, qs } from '../http';
+import { getJson, getText, HttpError, qs } from '../http';
 import { JP_PAGE_SIZE } from '@shared/stores/nintendoRegions';
 import {
   ASIA_PAGE_SIZE,
@@ -52,6 +52,7 @@ export async function fetchAsiaCatalog(grp: AsiaGroup): Promise<RegionEntry[]> {
     getJson<AsiaResponse>(`${url}?${qs(asiaCatalogQuery(page, order))}`, { timeoutMs: 90_000 }).then(parseAsiaResponse);
   const first = await get('newest', 0);
   const total = first.total;
+  if (!total) throw new Error(`${grp} catalog came back empty`);
   // Every page must come back about as full as it should; a short one means the list
   // didn't come back whole, and it's better to keep what we had than to drop listings
   const check = (page: number, count: number) => {
@@ -74,7 +75,15 @@ export async function fetchAsiaCatalog(grp: AsiaGroup): Promise<RegionEntry[]> {
  * challenge page), so it's tried again later instead of remembered as "none".
  */
 export async function fetchHkAppId(nsuid: string): Promise<string | null> {
-  const id = parseEshopAppId(await getText(eshopTitleUrl('HK', 'zh', nsuid, config.upstream.nintendoEshopWeb), { timeoutMs: 30_000 }), nsuid);
+  let page: string;
+  try {
+    page = await getText(eshopTitleUrl('HK', 'zh', nsuid, config.upstream.nintendoEshopWeb), { timeoutMs: 30_000 });
+  } catch (e) {
+    // No such page (the title left the store): a final answer, not a failure to retry every run
+    if (e instanceof HttpError && (e.status === 404 || e.status === 410)) return null;
+    throw e;
+  }
+  const id = parseEshopAppId(page, nsuid);
   if (id === undefined) throw new Error(`Hong Kong title page ${nsuid} didn't contain the title's data`);
   return id;
 }

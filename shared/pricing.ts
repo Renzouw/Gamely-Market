@@ -49,8 +49,10 @@ export function summarize(
   opts: { homeCurrency: string; homeRegion: string; fx?: FxRates },
 ): PriceSummary {
   const ranked = rankByPrice(withConversion(prices, opts.homeCurrency, opts.fx));
-  const best = ranked.find((p) => p.converted !== undefined);
   const home = ranked.find((p) => p.country === opts.homeRegion);
+  // A tie goes to home (euro eShops often charge the same): no point sending someone abroad for nothing
+  const cheapest = ranked.find((p) => p.converted !== undefined);
+  const best = cheapest && home?.converted !== undefined && cheapest.converted !== undefined && home.converted - cheapest.converted < 0.005 ? home : cheapest;
   let savingVsHome: number | undefined;
   if (best && home?.converted && best.converted !== undefined && home.converted > 0) {
     savingVsHome = Math.max(0, 1 - best.converted / home.converted);
@@ -66,7 +68,8 @@ export function summarize(
 
 export function discountPercent(regular: number, sale?: number): number {
   if (sale === undefined || regular <= 0 || sale >= regular) return 0;
-  return Math.round((1 - sale / regular) * 100);
+  // Any real discount shows as at least 1%, never "0% off"
+  return Math.max(1, Math.round((1 - sale / regular) * 100));
 }
 
 const ZERO_DECIMAL = new Set(['JPY', 'KRW', 'CLP', 'COP', 'VND', 'IDR', 'HUF', 'ISK', 'TWD']);

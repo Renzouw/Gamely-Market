@@ -34,3 +34,14 @@ export function hourLabel(h: number): string {
   d.setHours(h, 0, 0, 0);
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
+
+/**
+ * A typed target price: "1,500" and "1,500.50" are thousands (pesos, yen), "12,99" is a decimal
+ * comma. Undefined for anything that isn't a positive number.
+ */
+export function parseTarget(text: string): number | undefined {
+  const t = text.trim().replace(/\s/g, '');
+  const clean = /^\d{1,3}(,\d{3})+(\.\d*)?$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
+  const v = parseFloat(clean);
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
+}

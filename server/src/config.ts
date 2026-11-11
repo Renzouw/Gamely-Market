@@ -1,3 +1,4 @@
+import { NINTENDO_JP_SEARCH, NINTENDO_SEA_SEARCH } from '@shared/stores/nintendoRegions';
 const env = process.env;
 const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v)) ? Number(v) : d);
 const MIN = 60_000;
@@ -15,9 +16,9 @@ export const config = {
   upstream: {
     nintendoPrice: env.UPSTREAM_NINTENDO_PRICE ?? 'https://api.ec.nintendo.com/v1/price',
     nintendoEuSearch: env.UPSTREAM_NINTENDO_EU ?? 'https://searching.nintendo-europe.com/en/select',
-    nintendoJpSearch: env.UPSTREAM_NINTENDO_JP ?? 'https://search.nintendo.jp/nintendo_soft/search.json',
+    nintendoJpSearch: env.UPSTREAM_NINTENDO_JP ?? NINTENDO_JP_SEARCH,
     /** Southeast Asia (the Philippines), on the same search as Japan */
-    nintendoSeaSearch: env.UPSTREAM_NINTENDO_SEA ?? 'https://search.nintendo.jp/nintendo_soft_ph/search.json',
+    nintendoSeaSearch: env.UPSTREAM_NINTENDO_SEA ?? NINTENDO_SEA_SEARCH,
     /** Nintendo's Hong Kong and Korea sites, for their software lists */
     nintendoSite: env.UPSTREAM_NINTENDO_SITE ?? 'https://www.nintendo.com',
     /** The web eShop, for application IDs on Hong Kong title pages */

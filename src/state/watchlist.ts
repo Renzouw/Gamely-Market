@@ -17,7 +17,16 @@ export interface LocalWatch {
   /** The server has this exact version */
   synced: boolean;
   /** What the phone saw last time it checked, for phone-side alerts */
-  last?: { best?: number; country?: string; onSale?: boolean; homeOnSale?: boolean; checkedAt: number };
+  last?: {
+    /** In the currency at the time; bestLocal is the same price in its own currency, for comparing across rate changes */
+    best?: number;
+    bestLocal?: { amount: number; currency: string };
+    country?: string;
+    /** Any region on sale (not just the cheapest) */
+    onSale?: boolean;
+    homeOnSale?: boolean;
+    checkedAt: number;
+  };
   /** Phone-side alerts already shown, so each one is shown once */
   sent: string[];
 }
@@ -32,15 +41,15 @@ interface WatchState {
   restore: (w: LocalWatch) => void;
   markSynced: (key: string, version: number) => void;
   clearRemoved: (key: string) => void;
-  setLast: (key: string, last: LocalWatch['last'], sent?: string[]) => void;
   /** Several at once: every change saves the whole watchlist to disk */
   setLastMany: (entries: { key: string; last: LocalWatch['last']; sent?: string[] }[]) => void;
-  convertTargets: (rate: number) => void;
+  /** A currency change: targets converted at `rate` (new per old), or removed when there's no rate */
+  convertTargets: (rate: number | undefined) => void;
 }
 
 export const useWatchlist = create<WatchState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       items: {},
       removed: [],
       save: (game, input) =>
@@ -72,7 +81,6 @@ export const useWatchlist = create<WatchState>()(
       markSynced: (key, version) =>
         set((s) => (s.items[key] && s.items[key].updatedAt === version ? { items: { ...s.items, [key]: { ...s.items[key], synced: true } } } : s)),
       clearRemoved: (key) => set((s) => ({ removed: s.removed.filter((k) => k !== key) })),
-      setLast: (key, last, sent) => get().setLastMany([{ key, last, sent }]),
       setLastMany: (entries) =>
         set((s) => {
           const items = { ...s.items };
@@ -85,13 +93,15 @@ export const useWatchlist = create<WatchState>()(
           }
           return changed ? { items } : s;
         }),
-      /** Target prices follow a currency change (rate = new per old) */
       convertTargets: (rate) =>
         set((s) => ({
           items: Object.fromEntries(
             Object.entries(s.items).map(([k, w]) => [
               k,
-              w.target === undefined ? w : { ...w, target: Math.round(w.target * rate * 100) / 100, synced: false, updatedAt: Date.now(), last: undefined },
+              // Every watch forgets its last check (its numbers were in the old currency)
+              w.target === undefined
+                ? { ...w, last: undefined }
+                : { ...w, target: rate ? Math.round(w.target * rate * 100) / 100 : undefined, synced: false, updatedAt: Date.now(), last: undefined },
             ]),
           ),
         })),

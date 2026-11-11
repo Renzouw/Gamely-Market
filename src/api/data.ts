@@ -17,7 +17,9 @@ export function directContext(): DirectContext {
   return { home: s.homeRegion, currency: s.homeCurrency, switchRegions: s.switchRegions, steamRegions: s.steamRegions };
 }
 
-const serverUnavailable = (e: unknown) => e instanceof ApiError && (e.status === 0 || e.status >= 500);
+// Only no answer at all means the server is down. A 5xx (rates not loaded yet, one bad page) is an
+// ordinary error for that screen, not a reason to switch the whole app to phone-only mode.
+const serverUnavailable = (e: unknown) => e instanceof ApiError && e.status === 0;
 
 /**
  * A screen's query passes the mode it was made for, and its key includes it.

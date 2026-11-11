@@ -62,7 +62,9 @@ export default function RegionsScreen() {
               checked={allOn}
               onPress={() =>
                 s.set({
-                  switchRegions: allOn ? s.switchRegions.filter((x) => !regions.some((r) => r.code === x)) : [...new Set([...s.switchRegions, ...regions.map((r) => r.code)])],
+                  switchRegions: allOn
+                    ? s.switchRegions.filter((x) => x === s.homeRegion || !regions.some((r) => r.code === x))
+                    : [...new Set([...s.switchRegions, ...regions.map((r) => r.code)])],
                 })
               }
             />

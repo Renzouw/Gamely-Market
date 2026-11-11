@@ -111,7 +111,8 @@ export function planAlertCandidates(input: {
       expiresAt: ends,
     });
   }
-  if (w.alerts.sale && hasSale && !hadSale && a.sale) {
+  // Needs a before to compare with: a game priced for the first time didn't just go on sale
+  if (w.alerts.sale && hasSale && !hadSale && a.sale && beforeSummary.ranked.length > 0) {
     out.push({
       kind: 'sale',
       title: `${w.title} is on sale`,
@@ -124,7 +125,7 @@ export function planAlertCandidates(input: {
   // Most people would rather buy at home, so this is worth a heads-up too.
   const home = afterSummary.home;
   const homeBefore = beforeSummary.ranked.find((p) => p.country === home?.country);
-  if (w.alerts.sale && home?.sale && !homeBefore?.sale && home.converted !== undefined && home.country !== a.country) {
+  if (w.alerts.sale && home?.sale && homeBefore && !homeBefore.sale && home.converted !== undefined && home.country !== a.country) {
     const homeLocal = home.current.currency !== d.currency ? ` (${formatMoney(home.current.amount, home.current.currency)})` : '';
     const homeLeft = timeLeft(home.saleEndsAt, now);
     out.push({

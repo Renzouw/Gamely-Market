@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { create } from 'zustand';
 import { HIT, radius, space, useTheme } from '../theme';
@@ -28,8 +28,18 @@ export function Toast() {
 
   useEffect(() => {
     if (!message) return;
-    const t = setTimeout(() => useToast.setState((s) => (s.id === id ? { message: undefined, action: undefined } : s)), SHOW_MS);
-    return () => clearTimeout(t);
+    let t: ReturnType<typeof setTimeout> | undefined;
+    let gone = false;
+    // Screen reader users get longer to reach Undo, as long as Android's setting asks for
+    void AccessibilityInfo.getRecommendedTimeoutMillis(SHOW_MS)
+      .catch(() => SHOW_MS)
+      .then((ms) => {
+        if (!gone) t = setTimeout(() => useToast.setState((s) => (s.id === id ? { message: undefined, action: undefined } : s)), ms);
+      });
+    return () => {
+      gone = true;
+      clearTimeout(t);
+    };
   }, [id, message]);
 
   if (!message) return null;

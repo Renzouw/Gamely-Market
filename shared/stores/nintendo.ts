@@ -167,6 +167,13 @@ export interface CountryPrices {
 
 const GONE = new Set(['not_found', 'sales_termination', 'unreleased']);
 
+/** A price the store actually gave: a number, or a non-empty numeric string. */
+function amount(v: unknown): number | undefined {
+  if (v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 export function parsePriceResponse(country: string, data: RawPriceResponse, now = Date.now()): CountryPrices {
   const prices = new Map<string, RegionPrice>();
   const gone = new Set<string>();
@@ -177,11 +184,12 @@ export function parsePriceResponse(country: string, data: RawPriceResponse, now 
       continue;
     }
     const reg = p.regular_price;
-    const regularAmount = Number(reg?.raw_value);
-    if (!reg?.currency || !Number.isFinite(regularAmount)) continue;
+    // Number(null) and Number('') are 0: a price the store left out would read as "Free"
+    const regularAmount = amount(reg?.raw_value);
+    if (!reg?.currency || regularAmount === undefined) continue;
 
     const disc = p.discount_price;
-    const saleAmount = disc?.raw_value !== undefined ? Number(disc.raw_value) : undefined;
+    const saleAmount = amount(disc?.raw_value);
     const start = disc?.start_datetime ? Date.parse(disc.start_datetime) : undefined;
     const end = disc?.end_datetime ? Date.parse(disc.end_datetime) : undefined;
     // Only count a discount that is live right now

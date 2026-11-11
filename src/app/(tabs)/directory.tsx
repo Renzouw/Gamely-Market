@@ -81,7 +81,8 @@ export default function DirectoryScreen() {
     }),
     [sort, onSale, big, cheap, abroad, limit, country, canAbroad],
   );
-  const q = useDirectory(platform, query, options);
+  // Paused while the Upgrade packs list is showing (it would fetch a list nobody sees)
+  const q = useDirectory(platform, query, options, !(upgrades && !isSteam));
   const filtered = onSale || big || cheap || (abroad && canAbroad) || !!country;
   const clear = () => (setOnSale(false), setBig(false), setCheap(false), setAbroad(false), setCountry(undefined));
 

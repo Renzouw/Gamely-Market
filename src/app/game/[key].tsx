@@ -16,7 +16,7 @@ import { PriceSpread } from '../../components/PriceSpread';
 import { showToast } from '../../components/Toast';
 import { Button, Cover, EmptyState, Group, haptic, PlatformLabel, Row, Sheet, Skeleton, SwitchRow } from '../../components/ui';
 import { useDataMode, useFx, useGameDetail, useIsWatched, usePriceSummary, useWatchActions } from '../../hooks/queries';
-import { ago, shortDate } from '../../lib/format';
+import { ago, parseTarget, shortDate } from '../../lib/format';
 import { turnOnAlerts } from '../../services/turnOnAlerts';
 import { useSettings } from '../../state/settings';
 import { useWatchlist } from '../../state/watchlist';
@@ -57,7 +57,7 @@ function useKeyboardHeight(): number {
 
 export default function GameScreen() {
   const { key } = useLocalSearchParams<{ key: string }>();
-  const { c } = useTheme();
+  const { c, dark } = useTheme();
   const { width } = useWindowDimensions();
   const q = useGameDetail(key);
   const d = q.data;
@@ -142,7 +142,7 @@ export default function GameScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <StatusBar style={overCover ? 'light' : 'auto'} />
+      <StatusBar style={overCover || dark ? 'light' : 'dark'} />
       <ScrollView
         ref={scroll}
         contentContainerStyle={{ paddingBottom: 56 + keyboard }}
@@ -295,6 +295,7 @@ export default function GameScreen() {
               <Pressable
                 onPress={() => (haptic(), setAllRegions(true))}
                 accessibilityRole="button"
+                accessibilityState={{ expanded: false }}
                 style={({ pressed }) => [styles.more, { borderTopColor: c.line, opacity: pressed ? 0.6 : 1 }]}
               >
                 <Text variant="headline">Show all {s.ranked.length} regions</Text>
@@ -380,12 +381,11 @@ function RegionRow({
   return (
     <Pressable
       accessible
-      disabled={!url}
       onPress={url ? () => (haptic(), open(url)) : undefined}
       accessibilityRole={url ? 'link' : undefined}
       accessibilityHint={url ? `Opens the ${r.name} eShop` : undefined}
       accessibilityLabel={`${r.name}, ${formatMoney(p.converted, currency)}${p.discountPercent ? `, ${p.discountPercent}% off` : ''}${best ? ', cheapest' : ''}${home ? (steam ? ', your store' : ', your eShop') : ''}`}
-      style={({ pressed }) => [styles.region, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }, pressed && { opacity: 0.6 }]}
+      style={({ pressed }) => [styles.region, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }, pressed && url ? { opacity: 0.6 } : null]}
     >
       {best ? <View style={[styles.bestRule, { backgroundColor: c.signalText }]} /> : null}
       <Text style={styles.flag}>{r.flag}</Text>
@@ -436,7 +436,8 @@ function AlertSettings({
   const [seenTarget, setSeenTarget] = useState(target);
   if (target !== seenTarget) {
     setSeenTarget(target);
-    setText(target !== undefined ? String(target) : '');
+    // Our own autosave doesn't rewrite what's being typed ("1499." stays, so "1499.50" can follow)
+    if (parseTarget(text) !== target) setText(target !== undefined ? String(target) : '');
   }
 
   const set = (patch: Partial<AlertPrefs>) => save.mutate({ game, input: { alerts: patch } });
@@ -447,13 +448,15 @@ function AlertSettings({
   const latest = useRef({ text, target });
   // A target saved (or removed) elsewhere resets what's typed, as the box itself does above
   useEffect(() => {
-    latest.current = { text: target !== undefined ? String(target) : '', target };
+    const typed = latest.current.text;
+    latest.current = { text: parseTarget(typed) === target ? typed : target !== undefined ? String(target) : '', target };
   }, [target]);
   const saveTyped = (feedback: boolean) => {
     const { text: t, target: saved } = latest.current;
     if (!useWatchlist.getState().items[game.key]) return; // stopped watching: don't bring it back
-    const v = parseFloat(t.replace(',', '.'));
-    const next = Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : undefined;
+    // Mid-number ("1499." or "1,"): wait for the rest, unless leaving the page
+    if (feedback && /[.,]$/.test(t.trim())) return;
+    const next = parseTarget(t);
     if (next === saved || (next === undefined && t.trim() !== '')) return; // nothing new, or not a number yet
     commitTarget(next);
     if (feedback && next !== undefined) haptic('success');

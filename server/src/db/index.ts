@@ -30,6 +30,8 @@ const COLUMNS: [table: string, column: string, ddl: string][] = [
 const DROPPED: [table: string, column: string][] = [['games', 'jp_checked_at']];
 
 const INDEXES = [
+  // Upgrade packs find their Switch game by application ID
+  'CREATE INDEX IF NOT EXISTS games_app ON games(app_id) WHERE app_id IS NOT NULL',
   'CREATE INDEX IF NOT EXISTS notifications_ticket ON notifications(ticket_id) WHERE ticket_id IS NOT NULL',
   'CREATE UNIQUE INDEX IF NOT EXISTS devices_push_token ON devices(push_token) WHERE push_token IS NOT NULL',
 ];
@@ -87,11 +89,69 @@ function dropMisfiledUpgradeIds(db: DatabaseSync) {
       db.prepare(`DELETE FROM prices WHERE game_id = ? AND country IN (${marks})`).run(r.game_id, ...europe);
       db.prepare(`DELETE FROM price_history WHERE game_id = ? AND country IN (${marks})`).run(r.game_id, ...europe);
     }
+    recomputeSaleFlags(db, rows.map((r) => r.game_id));
   });
 }
 
+/**
+ * Before the fix above, an Edition Europe listed pack-ID-first was created as game
+ * sw:eu:7005..., and the other regions linked that game to the Edition's own IDs. That
+ * row is now the upgrade pack, so those links (and the prices they brought) belong to
+ * the Edition: move them across, or drop them where the Edition already has its own.
+ * Packs also lose the Edition's popularity rank and product code.
+ */
+function moveEditionLinksOffPacks(db: DatabaseSync) {
+  const rows = db
+    .prepare(
+      `SELECT i.grp, i.nsuid, i.game_id AS pack, u.edition_id AS edition FROM game_ids i LEFT JOIN upgrades u ON u.pack_id = i.game_id
+       WHERE i.game_id LIKE 'sw:eu:7005%' AND i.grp != 'europe'`,
+    )
+    .all() as { grp: string; nsuid: string; pack: string; edition: string | null }[];
+  const ranked = db.prepare("SELECT 1 AS x FROM games WHERE id LIKE 'sw:eu:7005%' AND (rank IS NOT NULL OR product_code IS NOT NULL OR code_key IS NOT NULL) LIMIT 1").get();
+  if (!rows.length && !ranked) return;
+  const touched = new Set<string>();
+  tx(db, () => {
+    for (const r of rows) {
+      const codes = SWITCH_REGIONS.filter((x) => x.group === r.grp).map((x) => x.code);
+      const marks = codes.map(() => '?').join(',');
+      const editionHasOne = r.edition && db.prepare('SELECT 1 AS x FROM game_ids WHERE game_id = ? AND grp = ?').get(r.edition, r.grp);
+      if (r.edition && !editionHasOne) {
+        db.prepare('UPDATE game_ids SET game_id = ? WHERE grp = ? AND nsuid = ?').run(r.edition, r.grp, r.nsuid);
+        db.prepare(
+          `INSERT OR IGNORE INTO prices (game_id, country, currency, regular, sale, discount, sale_ends_at, checked_at, changed_at)
+           SELECT ?, country, currency, regular, sale, discount, sale_ends_at, checked_at, changed_at FROM prices WHERE game_id = ? AND country IN (${marks})`,
+        ).run(r.edition, r.pack, ...codes);
+        db.prepare(
+          `INSERT OR IGNORE INTO price_history (game_id, country, t, currency, price, regular, discount)
+           SELECT ?, country, t, currency, price, regular, discount FROM price_history WHERE game_id = ? AND country IN (${marks})`,
+        ).run(r.edition, r.pack, ...codes);
+        touched.add(r.edition);
+      } else {
+        db.prepare('DELETE FROM game_ids WHERE grp = ? AND nsuid = ?').run(r.grp, r.nsuid);
+      }
+      db.prepare(`DELETE FROM prices WHERE game_id = ? AND country IN (${marks})`).run(r.pack, ...codes);
+      db.prepare(`DELETE FROM price_history WHERE game_id = ? AND country IN (${marks})`).run(r.pack, ...codes);
+      touched.add(r.pack);
+    }
+    db.prepare("UPDATE games SET rank = NULL, product_code = NULL, code_key = NULL WHERE id LIKE 'sw:eu:7005%'").run();
+    recomputeSaleFlags(db, [...touched]);
+  });
+}
+
+/** The sale flags on games, from their prices (the same rule as store.ts saleFlagsFor). */
+function recomputeSaleFlags(db: DatabaseSync, ids: string[]) {
+  const now = new Date().toISOString();
+  const live = "p.game_id = games.id AND p.sale IS NOT NULL AND (p.sale_ends_at IS NULL OR p.sale_ends_at > ?)";
+  const stmt = db.prepare(
+    `UPDATE games SET on_sale = EXISTS (SELECT 1 FROM prices p WHERE ${live}),
+       max_discount = COALESCE((SELECT MAX(discount) FROM prices p WHERE ${live}), 0),
+       sale_ends_at = (SELECT MIN(sale_ends_at) FROM prices p WHERE ${live})
+     WHERE id = ?`,
+  );
+  for (const id of new Set(ids)) stmt.run(now, now, now, id);
+}
+
 function migrate(db: DatabaseSync) {
-  dropMisfiledUpgradeIds(db);
   let shrink = rebuildCompact(db);
   for (const table of DROPPED_TABLES) {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) {
@@ -122,6 +182,9 @@ function migrate(db: DatabaseSync) {
     const [, table, column] = sql.match(/ON (\w+)\((\w+)\)/) ?? [];
     if (!table || has(table, column)) db.exec(sql);
   }
+  // Data fixes, once every column they touch exists
+  dropMisfiledUpgradeIds(db);
+  moveEditionLinksOffPacks(db);
 }
 
 /** Run fn inside a transaction. node:sqlite has no helper for this. */
