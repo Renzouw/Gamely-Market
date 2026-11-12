@@ -37,7 +37,25 @@ useServer.subscribe((s) => {
 
 let checking: { url: string; result: Promise<DataMode> } | undefined;
 
-/** Ask the server if it's there. Quick: gives up after a few seconds. */
+/** One request to /health; false if it fails or takes longer than `ms`. */
+async function ping(url: string, ms: number): Promise<boolean> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return (await fetch(`${url}/health`, { signal: ctrl.signal })).ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/**
+ * Ask the server if it's there. While connected, losing it takes two failed tries
+ * (6 seconds each, a second apart): a busy moment on the PC or a blip on the phone's
+ * Wi-Fi shouldn't drop the whole app into phone-only mode. Otherwise one try is
+ * enough, so a launch away from home doesn't wait long.
+ */
 export function checkServer(): Promise<DataMode> {
   const url = serverUrl();
   // Share a check already on its way, unless the address has changed since
@@ -45,15 +63,11 @@ export function checkServer(): Promise<DataMode> {
   const result = (async (): Promise<DataMode> => {
     let ok = false;
     if (url) {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 3000);
-      try {
-        const res = await fetch(`${url}/health`, { signal: ctrl.signal });
-        ok = res.ok;
-      } catch {
-        ok = false;
-      } finally {
-        clearTimeout(t);
+      const connected = useServer.getState().mode === 'server';
+      ok = await ping(url, connected ? 6000 : 5000);
+      if (!ok && connected) {
+        await new Promise((r) => setTimeout(r, 1000));
+        ok = await ping(url, 6000);
       }
     }
     const now = Date.now();
@@ -74,9 +88,14 @@ export async function currentMode(): Promise<DataMode> {
   return useServer.getState().mode ?? checkServer();
 }
 
-/** A server request just failed at the network level: switch to phone-only mode now. */
+/**
+ * A server request just failed at the network level. That alone isn't proof the server
+ * is gone (the phone may have just woken up or changed networks), so check properly;
+ * phone-only mode starts only if that check fails too.
+ */
 export function reportServerDown() {
-  useServer.setState({ mode: 'direct', lastCheck: Date.now() });
+  if (useServer.getState().mode === 'server') void checkServer();
+  else useServer.setState({ mode: 'direct', lastCheck: Date.now() });
 }
 
 export function reportServerOk() {

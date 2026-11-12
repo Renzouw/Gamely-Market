@@ -204,3 +204,44 @@ describe('upgrade packs list', () => {
     expect(s.home).toBeUndefined();
   });
 });
+
+describe('staying connected to the server', () => {
+  const { checkServer, reportServerDown, useServer } = jest.requireActual('../api/server') as typeof import('../api/server');
+  const { useSettings } = jest.requireActual('../state/settings') as typeof import('../state/settings');
+  const realFetch = globalThis.fetch;
+  beforeEach(() => useSettings.getState().set({ serverUrl: 'http://192.168.1.20:8787' }));
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    useSettings.getState().set({ serverUrl: '' });
+  });
+  const answers = (...ok: boolean[]) => {
+    let i = 0;
+    globalThis.fetch = jest.fn(async () => {
+      if (!ok[i++]) throw new TypeError('Network request failed');
+      return new Response('{"ok":true}');
+    }) as unknown as typeof fetch;
+  };
+
+  it('stays connected through one failed check (a busy moment, a Wi-Fi blip)', async () => {
+    useServer.setState({ mode: 'server' });
+    answers(false, true);
+    await expect(checkServer()).resolves.toBe('server');
+    expect(useServer.getState().mode).toBe('server');
+  });
+
+  it('switches to phone-only only when the second try fails too', async () => {
+    useServer.setState({ mode: 'server' });
+    answers(false, false);
+    await expect(checkServer()).resolves.toBe('direct');
+    expect(useServer.getState().mode).toBe('direct');
+  });
+
+  it('doesn’t drop the server over one failed request: it checks first', async () => {
+    useServer.setState({ mode: 'server' });
+    answers(true);
+    reportServerDown();
+    expect(useServer.getState().mode).toBe('server');
+    await checkServer();
+    expect(useServer.getState().mode).toBe('server');
+  });
+});

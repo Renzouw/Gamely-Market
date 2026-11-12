@@ -92,11 +92,27 @@ function AppEffects() {
     void checkServer();
   }, [serverAddress]);
 
-  // In phone-only mode, look again every couple of minutes so the app switches back on its own
+  // Cut off from the server: keep looking while the app is open, soon at first (5, 10, 20
+  // seconds), then every 30 seconds, so it reconnects on its own as soon as the PC answers.
+  // Coming back to the app checks straight away (below).
   useEffect(() => {
     if (mode !== 'direct') return;
-    const t = setInterval(() => void checkServer(), 2 * 60_000);
-    return () => clearInterval(t);
+    let wait = 5_000;
+    let t: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    const next = () => {
+      t = setTimeout(async () => {
+        if (AppState.currentState === 'active') await checkServer();
+        if (stopped) return;
+        wait = Math.min(wait * 2, 30_000);
+        next();
+      }, wait);
+    };
+    next();
+    return () => {
+      stopped = true;
+      clearTimeout(t);
+    };
   }, [mode]);
 
   // The server just became reachable (or the watchlist changed): bring it up to date
