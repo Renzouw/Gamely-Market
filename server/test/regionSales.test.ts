@@ -201,3 +201,27 @@ describe('the last few Philippine sales', () => {
     expect(all(db, "SELECT nsuid FROM game_ids WHERE grp = 'japan'")).toEqual([{ nsuid: '70010000000001' }]);
   });
 });
+
+describe('pre-orders', () => {
+  it('prices a pre-order, discount included (Monster Hunter Wilds in the Philippines, 2026-11-13)', async () => {
+    const { parsePriceResponse } = await import('../src/sources/nintendo/prices');
+    const { prices } = parsePriceResponse(
+      'PH',
+      {
+        country: 'PH',
+        prices: [
+          {
+            title_id: 70010000132563,
+            sales_status: 'preorder',
+            regular_price: { amount: 'PHP1,790', currency: 'PHP', raw_value: '1790' },
+            discount_price: { amount: 'PHP1,342', currency: 'PHP', raw_value: '1342', start_datetime: '2026-11-09T16:00:00Z', end_datetime: '2027-01-07T15:59:59Z' },
+          },
+          { title_id: 70010000000001, sales_status: 'unreleased' },
+        ],
+      },
+      Date.parse('2026-11-13T00:00:00Z'),
+    );
+    expect(prices.get('70010000132563')).toMatchObject({ regular: { amount: 1790 }, sale: { amount: 1342 }, discountPercent: 25 });
+    expect(prices.has('70010000000001')).toBe(false);
+  });
+});

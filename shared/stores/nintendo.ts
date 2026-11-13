@@ -166,6 +166,8 @@ export interface CountryPrices {
 }
 
 const GONE = new Set(['not_found', 'sales_termination', 'unreleased']);
+/** Sold now: available, or open for pre-order (pre-orders get discounts too) */
+const SELLING = new Set(['onsale', 'preorder']);
 
 /** A price the store actually gave: a number, or a non-empty numeric string. */
 function amount(v: unknown): number | undefined {
@@ -179,7 +181,7 @@ export function parsePriceResponse(country: string, data: RawPriceResponse, now 
   const gone = new Set<string>();
   for (const p of data.prices ?? []) {
     const id = String(p.title_id);
-    if (p.sales_status && p.sales_status !== 'onsale') {
+    if (p.sales_status && !SELLING.has(p.sales_status)) {
       if (GONE.has(p.sales_status)) gone.add(id);
       continue;
     }

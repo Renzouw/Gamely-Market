@@ -44,6 +44,12 @@ function regionIds(g: ApiGame): ApiGame['nsuids'] {
   return { ...own, ...g.nsuids };
 }
 
+/** Not out yet: its price is a pre-order price */
+function upcoming(date: string | undefined): boolean {
+  const t = date ? Date.parse(date) : NaN;
+  return Number.isFinite(t) && t > Date.now();
+}
+
 /** Android doesn't move the page for the keyboard by itself, so the page makes room for it */
 function useKeyboardHeight(): number {
   const [h, setH] = useState(0);
@@ -169,7 +175,7 @@ export default function GameScreen() {
             {g.title}
           </Text>
           <Text variant="footnote" tone="subtle" style={{ marginTop: space.xs }}>
-            {[g.publisher, shortDate(g.releaseDate)].filter(Boolean).join(' · ')}
+            {[g.publisher, upcoming(g.releaseDate) ? `Pre-order, out ${shortDate(g.releaseDate)}` : shortDate(g.releaseDate)].filter(Boolean).join(' · ')}
           </Text>
           {kind !== 'game' ? (
             <View style={{ marginTop: space.md }}>
