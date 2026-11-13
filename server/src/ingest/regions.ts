@@ -1,8 +1,9 @@
 import { productCore, titleKey } from '@shared/match';
+import { SWITCH_REGIONS } from '@shared/regions';
 import { config } from '../config';
 import { all, get, run, tx, type Db } from '../db';
 import { JP_PAGE_SIZE } from '@shared/stores/nintendoRegions';
-import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, fetchSeaPage, fetchUpgrades, type RegionEntry } from '../sources/nintendo/catalogRegions';
+import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, fetchRegionSales, fetchSeaPage, fetchUpgrades, type RegionEntry } from '../sources/nintendo/catalogRegions';
 import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } from '../store';
 
 /**
@@ -16,6 +17,10 @@ import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } 
  *    the application ID, which is the same worldwide, has to match exactly
  *    one Hong Kong listing on the same platform. That listing's product code
  *    then finds the game in Japan and Korea, under the same rule as 1.
+ *
+ * 3. Southeast Asia lists games in English, so a listing there is also
+ *    linked when its exact title (and platform) belongs to only one game of
+ *    ours and only one listing there. See linkSeaByTitle.
  *
  * Anything doubtful is left out, and the game page says so.
  */
@@ -151,6 +156,97 @@ export async function syncRegionCatalogs(db: Db, now = Date.now()): Promise<void
   } catch (e) {
     sourceError(db, 'nintendo-jp-catalog', e);
   }
+}
+
+/* --------------------------- Southeast Asia titles --------------------------- */
+
+const YEAR = 365 * DAY;
+
+/**
+ * Link Southeast Asia's listings by their English title. Europe has no product code
+ * for many games (Amnesia: Rebirth, SOMA), so code matching misses them, and they'd
+ * never get a price in the Philippines. A listing is linked only when:
+ *
+ * - its title and platform belong to exactly one of our games, and to no other
+ *   listing there (so "Tetris" sold by two publishers is left alone);
+ * - the game has no product code that says otherwise;
+ * - it wasn't released there more than a year before our release date (a much
+ *   older listing with the same name is likely a different game). Southeast Asia
+ *   dates every game already out when its eShop opened (November 2025) with that
+ *   day, so a later date there proves nothing.
+ *
+ * The listing's product code is then the game's too (when no other game has it),
+ * which finds it in Japan, Hong Kong and Korea at the next linkRegions.
+ * No network: runs on the catalog already saved. `only` limits it to these listings.
+ * Returns the games that gained a link.
+ */
+export function linkSeaByTitle(db: Db, only?: string[]): string[] {
+  const listings = all<CatalogRow>(db, "SELECT * FROM region_catalog WHERE grp = 'sea'");
+  const byTitle = new Map<string, CatalogRow[]>();
+  for (const r of listings) {
+    const k = `${r.platform}|${titleKey(r.title)}`;
+    byTitle.set(k, [...(byTitle.get(k) ?? []), r]);
+  }
+  const games = all<GameRow>(db, "SELECT * FROM games WHERE platform != 'steam' AND id NOT LIKE 'sw:eu:7005%'");
+  const ours = new Map<string, GameRow[]>();
+  for (const g of games) {
+    const k = `${g.platform}|${titleKey(g.title)}`;
+    ours.set(k, [...(ours.get(k) ?? []), g]);
+  }
+  const counts = idCounts(db);
+  const wanted = only ? new Set(only) : undefined;
+  const linked: string[] = [];
+  tx(db, () => {
+    for (const [k, rows] of byTitle) {
+      const gs = ours.get(k);
+      if (rows.length !== 1 || gs?.length !== 1) continue;
+      const [row] = rows;
+      const [g] = gs;
+      if (wanted && !wanted.has(row.nsuid)) continue;
+      if (isLinked(db, 'sea', row.nsuid) || linkedGroups(db, g.id).has('sea')) continue;
+      const own = keyOf(g);
+      if (own && own !== row.code_key) continue;
+      const theirs = row.release_date ? Date.parse(row.release_date) : NaN;
+      const mine = g.release_date ? Date.parse(g.release_date) : NaN;
+      if (Number.isFinite(theirs) && Number.isFinite(mine) && theirs < mine - YEAR) continue;
+      attachNsuid(db, 'sea', row.nsuid, g.id, 'title');
+      linked.push(g.id);
+      if (!own && !counts.keys.has(row.code_key)) {
+        counts.keys.set(row.code_key, 1);
+        // Look for it in the other regions at the next linking, not next week
+        run(db, 'UPDATE games SET code_key = ?, region_checked_at = NULL WHERE id = ?', row.code_key, g.id);
+      }
+    }
+  });
+  return linked;
+}
+
+/**
+ * What's on sale in Southeast Asia and Japan, as our games. The listings are saved
+ * too (a new one may have arrived since the last catalog read), and Southeast
+ * Asia's are linked by title if they can be. Returns each group with its games.
+ */
+export async function syncRegionSales(db: Db, now = Date.now()): Promise<{ grp: 'sea' | 'japan'; countries: string[]; ids: string[] }[]> {
+  const out: { grp: 'sea' | 'japan'; countries: string[]; ids: string[] }[] = [];
+  for (const grp of ['sea', 'japan'] as const) {
+    let entries: RegionEntry[];
+    try {
+      entries = await fetchRegionSales(grp);
+      sourceOk(db, `nintendo-${grp}-sales`, entries.length);
+    } catch (e) {
+      sourceError(db, `nintendo-${grp}-sales`, e);
+      continue;
+    }
+    saveEntries(db, grp, entries, now);
+    if (grp === 'sea') linkSeaByTitle(db, entries.map((e) => e.nsuid));
+    const ids = new Set<string>();
+    for (const e of entries) {
+      const r = get<{ game_id: string }>(db, 'SELECT game_id FROM game_ids WHERE grp = ? AND nsuid = ?', grp, e.nsuid);
+      if (r) ids.add(r.game_id);
+    }
+    out.push({ grp, countries: SWITCH_REGIONS.filter((r) => r.group === grp).map((r) => r.code), ids: [...ids] });
+  }
+  return out;
 }
 
 /* ------------------------------ upgrade packs ------------------------------ */

@@ -3,7 +3,7 @@ import { all, get, run, type Db } from './db';
 import { queueEndingAlerts, refreshAndAlert } from './alerts/run';
 import { discoverSteamDeals, syncEuCatalog, syncUsDeals, syncUsFullCatalog } from './ingest/catalog';
 import { invalidateFx, syncFx } from './ingest/fx';
-import { linkRegions, linkUpgradePacks, syncRegionCatalogs } from './ingest/regions';
+import { linkRegions, linkSeaByTitle, linkUpgradePacks, syncRegionCatalogs, syncRegionSales } from './ingest/regions';
 import { isOverdue, markRun } from './store';
 import { checkReceipts, dispatch } from './push/dispatch';
 import { detectSaleEvents, queueBigDeals } from './events/run';
@@ -63,7 +63,10 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     await refresh(ids);
   }
 
-  /** New sales: Nintendo's catalogs flag discounted games, Steam lists its specials. */
+  /**
+   * New sales: Nintendo's catalogs flag discounted games (Europe, the Americas,
+   * Southeast Asia, Japan), Steam lists its specials.
+   */
   async function deals() {
     const found = new Set<string>();
     for (const platform of ['switch2', 'switch'] as const) {
@@ -73,7 +76,13 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     (await discoverSteamDeals(db)).forEach((id) => found.add(id));
     // Only re-price what we haven't already got a sale price for
     const fresh = [...found].filter((id) => !get<{ n: number }>(db, 'SELECT 1 AS n FROM games WHERE id = ? AND on_sale = 1', id));
-    await refresh(fresh);
+    // A sale in Southeast Asia or Japan alone: the game may already be on sale elsewhere,
+    // so look at that region's own prices
+    for (const { countries, ids } of await syncRegionSales(db)) {
+      const there = `SELECT 1 AS n FROM prices WHERE game_id = ? AND sale IS NOT NULL AND country IN (${countries.map(() => '?').join(', ')})`;
+      for (const id of ids) if (!get<{ n: number }>(db, there, id, ...countries)) fresh.push(id);
+    }
+    await refresh([...new Set(fresh)]);
     // Fresh store-wide counts and fresh prices: check for a big sale now, so its "top picks" are current
     detectSaleEvents(db);
   }
@@ -102,7 +111,9 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
          AND NOT EXISTS (SELECT 1 FROM price_history h WHERE h.game_id = i.game_id AND h.country IN ('US', 'CA', 'MX', 'BR', 'AR', 'CL', 'CO', 'PE'))`,
     ).map((r) => r.id);
     await syncRegionCatalogs(db);
-    const linked = await linkRegions(db);
+    const byTitle = linkSeaByTitle(db);
+    if (byTitle.length) log(`regions: ${byTitle.length} games found in Southeast Asia by title`);
+    const linked = [...byTitle, ...(await linkRegions(db))];
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong, Korea or Southeast Asia`);
     // Upgrade packs filed for the first time have no price yet; nor do ones just found in Southeast Asia
     const packs = all<{ id: string }>(db, "SELECT pack_id AS id FROM upgrades u WHERE NOT EXISTS (SELECT 1 FROM price_history h WHERE h.game_id = u.pack_id)").map((r) => r.id);

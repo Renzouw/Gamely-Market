@@ -8,6 +8,7 @@ import {
   asiaSearchUrl,
   eshopTitleUrl,
   jpCatalogQuery,
+  jpSaleQuery,
   parseAsiaResponse,
   parseEshopAppId,
   parseJpResponse,
@@ -33,6 +34,21 @@ export async function fetchJpPage(page: number): Promise<{ entries: RegionEntry[
 /** One page (300 games) of Southeast Asia's downloadable games, newest first. Same format as Japan. */
 export async function fetchSeaPage(page: number): Promise<{ entries: RegionEntry[]; total: number; count: number }> {
   return parseJpResponse(await getJson<JpResponse>(`${config.upstream.nintendoSeaSearch}?${qs(jpCatalogQuery(page))}`));
+}
+
+/**
+ * The games on sale right now in Southeast Asia or Japan. Their sales often
+ * differ from Europe's and the Americas', so these lists are how we hear of them.
+ */
+export async function fetchRegionSales(grp: 'sea' | 'japan'): Promise<RegionEntry[]> {
+  const base = grp === 'sea' ? config.upstream.nintendoSeaSearch : config.upstream.nintendoJpSearch;
+  const out: RegionEntry[] = [];
+  for (let page = 0; page < 20; page++) {
+    const res = parseJpResponse(await getJson<JpResponse>(`${base}?${qs(jpSaleQuery(page))}`));
+    out.push(...res.entries);
+    if (res.count < JP_PAGE_SIZE || (page + 1) * JP_PAGE_SIZE >= res.total) break;
+  }
+  return out;
 }
 
 /** Every Switch 2 Edition upgrade pack Southeast Asia or Japan sells (100-150, one request). */

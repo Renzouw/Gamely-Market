@@ -39,8 +39,9 @@ export const NINTENDO_JP_SEARCH = 'https://search.nintendo.jp/nintendo_soft/sear
 /**
  * Southeast Asia's eShop (the Philippines; Singapore, Malaysia and Thailand
  * share its IDs) runs on the same search as Japan, with the same fields, so
- * jpCatalogQuery and parseJpResponse read it too. Its titles are in English,
- * but games are still linked by product code, like Japan.
+ * jpCatalogQuery and parseJpResponse read it too. Games are linked by product
+ * code, like Japan, and, since its titles are in English, by an exact title
+ * that only one game has (many games have no product code in Europe).
  */
 export const NINTENDO_SEA_SEARCH = 'https://search.nintendo.jp/nintendo_soft_ph/search.json';
 
@@ -71,6 +72,11 @@ export interface JpResponse {
 /** One page of every downloadable Switch and Switch 2 game, newest first. */
 export function jpCatalogQuery(page: number) {
   return { opt_sshow: 1, 'opt_sform[]': JP_GAME_FORMS, limit: JP_PAGE_SIZE, page: page + 1 };
+}
+
+/** Only the discounted ones: a page or two in Southeast Asia, about ten in Japan. */
+export function jpSaleQuery(page: number) {
+  return { ...jpCatalogQuery(page), fq: 'sale_flg_s:1' };
 }
 
 export function parseJpItem(it: JpItem): RegionEntry | undefined {
