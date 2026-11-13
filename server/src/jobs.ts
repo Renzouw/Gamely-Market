@@ -3,7 +3,7 @@ import { all, get, run, type Db } from './db';
 import { queueEndingAlerts, refreshAndAlert } from './alerts/run';
 import { discoverSteamDeals, syncEuCatalog, syncUsDeals, syncUsFullCatalog } from './ingest/catalog';
 import { invalidateFx, syncFx } from './ingest/fx';
-import { linkRegions, linkSeaByTitle, linkUpgradePacks, syncRegionCatalogs, syncRegionSales } from './ingest/regions';
+import { addSeaOnlyGames, linkByCode, linkRegions, linkSeaByTitle, linkUpgradePacks, syncRegionCatalogs, syncRegionSales } from './ingest/regions';
 import { isOverdue, markRun } from './store';
 import { checkReceipts, dispatch } from './push/dispatch';
 import { detectSaleEvents, queueBigDeals } from './events/run';
@@ -112,8 +112,12 @@ export function createJobs(db: Db, onPricesChanged: () => void) {
     ).map((r) => r.id);
     await syncRegionCatalogs(db);
     const byTitle = linkSeaByTitle(db);
-    if (byTitle.length) log(`regions: ${byTitle.length} games found in Southeast Asia by title`);
     const linked = [...byTitle, ...(await linkRegions(db))];
+    for (const grp of ['japan', 'hongkong', 'korea', 'sea'] as const) linked.push(...linkByCode(db, grp));
+    // Last, once every way of matching has had its turn
+    const seaOnly = addSeaOnlyGames(db);
+    linked.push(...seaOnly);
+    if (byTitle.length || seaOnly.length) log(`regions: ${byTitle.length} games found in Southeast Asia by title, ${seaOnly.length} sold only there`);
     log(`regions: ${linked.length} games newly linked in Japan, Hong Kong, Korea or Southeast Asia`);
     // Upgrade packs filed for the first time have no price yet; nor do ones just found in Southeast Asia
     const packs = all<{ id: string }>(db, "SELECT pack_id AS id FROM upgrades u WHERE NOT EXISTS (SELECT 1 FROM price_history h WHERE h.game_id = u.pack_id)").map((r) => r.id);

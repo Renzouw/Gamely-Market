@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS region_catalog (
   release_date  TEXT,
   app_id        TEXT,                      -- from the eShop title page, fetched only when needed
   app_checked_at INTEGER,
+  publisher     TEXT,                      -- Southeast Asia and Japan, for games sold only there
+  image         TEXT,
   seen_at       INTEGER NOT NULL,
   PRIMARY KEY (grp, nsuid)
 );

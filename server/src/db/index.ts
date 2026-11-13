@@ -24,6 +24,8 @@ const COLUMNS: [table: string, column: string, ddl: string][] = [
   ['games', 'app_id', 'TEXT'], // Nintendo's application ID, the same in every region
   ['games', 'code_key', 'TEXT'], // product code key learned from another region, when Europe has none
   ['games', 'region_checked_at', 'INTEGER'], // last look for a Japan/Hong Kong/Korea match
+  ['region_catalog', 'publisher', 'TEXT'], // for games sold only in Southeast Asia
+  ['region_catalog', 'image', 'TEXT'],
 ];
 
 /** Columns that are no longer used. */

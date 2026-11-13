@@ -4,7 +4,7 @@ import { config } from '../config';
 import { all, get, run, tx, type Db } from '../db';
 import { JP_PAGE_SIZE } from '@shared/stores/nintendoRegions';
 import { fetchAsiaCatalog, fetchHkAppId, fetchJpPage, fetchRegionSales, fetchSeaPage, fetchUpgrades, type RegionEntry } from '../sources/nintendo/catalogRegions';
-import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, type GameRow } from '../store';
+import { attachNsuid, isOverdue, markRun, sourceError, sourceOk, upsertGame, type GameRow } from '../store';
 
 /**
  * Japan, Hong Kong and Korea list games in Japanese, Chinese or Korean, so
@@ -43,6 +43,8 @@ interface CatalogRow {
   release_date: string | null;
   app_id: string | null;
   app_checked_at: number | null;
+  publisher: string | null;
+  image: string | null;
 }
 
 /* ---------------------------------- sync ---------------------------------- */
@@ -52,15 +54,18 @@ function saveEntries(db: Db, grp: RegionGroup, entries: RegionEntry[], now: numb
     for (const e of entries) {
       run(
         db,
-        `INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, release_date, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, release_date, publisher, image, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(grp, nsuid) DO UPDATE SET platform = excluded.platform, code_key = excluded.code_key,
-           title = excluded.title, release_date = excluded.release_date, seen_at = excluded.seen_at`,
+           title = excluded.title, release_date = excluded.release_date, publisher = excluded.publisher,
+           image = excluded.image, seen_at = excluded.seen_at`,
         grp,
         e.nsuid,
         e.platform,
         e.codeKey,
         e.title,
         e.releaseDate ?? null,
+        e.publisher ?? null,
+        e.image ?? null,
         now,
       );
     }
@@ -168,8 +173,10 @@ const YEAR = 365 * DAY;
  * never get a price in the Philippines. A listing is linked only when:
  *
  * - its title and platform belong to exactly one of our games, and to no other
- *   listing there (so "Tetris" sold by two publishers is left alone);
- * - the game has no product code that says otherwise;
+ *   listing there (so "Tetris" sold by two publishers is left alone). Europe
+ *   sometimes lists a bundle (ID 7007) under the game's own name; the game wins;
+ * - the game has no product code that says otherwise (a code another game of ours
+ *   also has, often a bundle's, says nothing);
  * - it wasn't released there more than a year before our release date (a much
  *   older listing with the same name is likely a different game). Southeast Asia
  *   dates every game already out when its eShop opened (November 2025) with that
@@ -187,31 +194,27 @@ export function linkSeaByTitle(db: Db, only?: string[]): string[] {
     const k = `${r.platform}|${titleKey(r.title)}`;
     byTitle.set(k, [...(byTitle.get(k) ?? []), r]);
   }
-  const games = all<GameRow>(db, "SELECT * FROM games WHERE platform != 'steam' AND id NOT LIKE 'sw:eu:7005%'");
-  const ours = new Map<string, GameRow[]>();
-  for (const g of games) {
-    const k = `${g.platform}|${titleKey(g.title)}`;
-    ours.set(k, [...(ours.get(k) ?? []), g]);
-  }
+  const ours = gamesByTitle(db);
   const counts = idCounts(db);
   const wanted = only ? new Set(only) : undefined;
   const linked: string[] = [];
   tx(db, () => {
     for (const [k, rows] of byTitle) {
-      const gs = ours.get(k);
+      let gs = ours.get(k);
+      if (gs && gs.length > 1) gs = gs.filter((g) => !BUNDLE_ID.test(g.id));
       if (rows.length !== 1 || gs?.length !== 1) continue;
       const [row] = rows;
       const [g] = gs;
       if (wanted && !wanted.has(row.nsuid)) continue;
       if (isLinked(db, 'sea', row.nsuid) || linkedGroups(db, g.id).has('sea')) continue;
       const own = keyOf(g);
-      if (own && own !== row.code_key) continue;
+      if (own && own !== row.code_key && counts.keys.get(own) === 1) continue;
       const theirs = row.release_date ? Date.parse(row.release_date) : NaN;
       const mine = g.release_date ? Date.parse(g.release_date) : NaN;
       if (Number.isFinite(theirs) && Number.isFinite(mine) && theirs < mine - YEAR) continue;
       attachNsuid(db, 'sea', row.nsuid, g.id, 'title');
       linked.push(g.id);
-      if (!own && !counts.keys.has(row.code_key)) {
+      if (!g.product_code && !g.code_key && !counts.keys.has(row.code_key)) {
         counts.keys.set(row.code_key, 1);
         // Look for it in the other regions at the next linking, not next week
         run(db, 'UPDATE games SET code_key = ?, region_checked_at = NULL WHERE id = ?', row.code_key, g.id);
@@ -219,6 +222,106 @@ export function linkSeaByTitle(db: Db, only?: string[]): string[] {
     }
   });
   return linked;
+}
+
+/** Our games (not Steam, not upgrade packs) by platform and title key */
+function gamesByTitle(db: Db): Map<string, GameRow[]> {
+  const ours = new Map<string, GameRow[]>();
+  for (const g of all<GameRow>(db, "SELECT * FROM games WHERE platform != 'steam' AND id NOT LIKE 'sw:eu:7005%'")) {
+    const k = `${g.platform}|${titleKey(g.title)}`;
+    ours.set(k, [...(ours.get(k) ?? []), g]);
+  }
+  return ours;
+}
+
+/** Our games (not Steam, not upgrade packs) by product code key */
+function gamesByKey(db: Db): Map<string, GameRow[]> {
+  const out = new Map<string, GameRow[]>();
+  for (const g of all<GameRow>(db, "SELECT * FROM games WHERE platform != 'steam' AND id NOT LIKE 'sw:eu:7005%'")) {
+    const k = keyOf(g);
+    if (k) out.set(k, [...(out.get(k) ?? []), g]);
+  }
+  return out;
+}
+
+/**
+ * Link listings by product code straight away, rather than when linkRegions next
+ * looks at the game (weekly): a new listing, or one just seen on sale. Same rule as
+ * linkRegions: exactly one game of ours has the code and exactly one listing there
+ * does. Southeast Asia sometimes sells two editions under one code; there the one
+ * with the game's own title is it. No network. Returns the games that gained a link.
+ */
+export function linkByCode(db: Db, grp: RegionGroup, only?: string[]): string[] {
+  const rows = all<CatalogRow>(
+    db,
+    'SELECT * FROM region_catalog r WHERE grp = ? AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = r.grp AND i.nsuid = r.nsuid)',
+    grp,
+  );
+  const wanted = only ? new Set(only) : undefined;
+  const byKey = gamesByKey(db);
+  const linked: string[] = [];
+  tx(db, () => {
+    for (const r of rows) {
+      if (wanted && !wanted.has(r.nsuid)) continue;
+      const gs = byKey.get(r.code_key);
+      if (gs?.length !== 1) continue;
+      const [g] = gs;
+      if (g.platform !== r.platform || linkedGroups(db, g.id).has(grp)) continue;
+      if (r.app_id && g.app_id && r.app_id !== g.app_id) continue;
+      let same = all<CatalogRow>(db, 'SELECT * FROM region_catalog WHERE grp = ? AND code_key = ?', grp, r.code_key);
+      if (same.length > 1 && grp === 'sea') same = same.filter((x) => titleKey(x.title) === titleKey(g.title));
+      if (same.length !== 1 || same[0].nsuid !== r.nsuid) continue;
+      attachNsuid(db, grp, r.nsuid, g.id, 'product_code');
+      linked.push(g.id);
+    }
+  });
+  return linked;
+}
+
+/** A bundle's ID, which Europe and the Americas sometimes list under the game's own name */
+const BUNDLE_ID = /^sw:(eu|us):7007/;
+
+/**
+ * Games sold in Southeast Asia but in neither Europe nor the Americas (or under a
+ * name and code we can't tie to one there): filed as games of their own,
+ * "sw:sea:<nsuid>", so they show up, sales included. Only when no game of ours has
+ * the same title and platform, and none that has the listing's product code could
+ * still be it (one already linked to another listing there isn't: that's a second
+ * edition sharing the code), so a game we already have isn't listed twice. If Europe or the Americas list it later, their catalog
+ * matches it like any other game (same title, plus publisher or release date).
+ * Run after linkSeaByTitle. `only` limits it to these listings. Returns the new games.
+ */
+export function addSeaOnlyGames(db: Db, only?: string[], now = Date.now()): string[] {
+  const rows = all<CatalogRow>(
+    db,
+    `SELECT * FROM region_catalog r WHERE grp = 'sea' AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = 'sea' AND i.nsuid = r.nsuid)`,
+  );
+  const wanted = only ? new Set(only) : undefined;
+  const ours = gamesByTitle(db);
+  const byKey = gamesByKey(db);
+  const counts = idCounts(db);
+  const added: string[] = [];
+  tx(db, () => {
+    for (const r of rows) {
+      if (wanted && !wanted.has(r.nsuid)) continue;
+      if (!r.title.trim() || ours.has(`${r.platform}|${titleKey(r.title)}`)) continue;
+      if ((byKey.get(r.code_key) ?? []).some((g) => !linkedGroups(db, g.id).has('sea'))) continue;
+      const id = `sw:sea:${r.nsuid}`;
+      upsertGame(db, { id, platform: r.platform as GameRow['platform'], title: r.title, image: r.image ?? undefined, publisher: r.publisher ?? undefined, releaseDate: r.release_date ?? undefined }, now);
+      // Its code finds it in Japan, Hong Kong and Korea at the next linking, unless another game has it
+      if (!counts.keys.has(r.code_key)) run(db, 'UPDATE games SET code_key = ? WHERE id = ?', r.code_key, id);
+      counts.keys.set(r.code_key, (counts.keys.get(r.code_key) ?? 0) + 1);
+      attachNsuid(db, 'sea', r.nsuid, id, 'source');
+      added.push(id);
+    }
+    // Ones filed earlier follow their listing's name and picture (only written when changed)
+    if (!only) {
+      for (const r of all<CatalogRow>(db, "SELECT r.* FROM region_catalog r JOIN games g ON g.id = 'sw:sea:' || r.nsuid WHERE r.grp = 'sea'")) {
+        upsertGame(db, { id: `sw:sea:${r.nsuid}`, platform: r.platform as GameRow['platform'], title: r.title, image: r.image ?? undefined, publisher: r.publisher ?? undefined }, now);
+      }
+    }
+  });
+  return added;
 }
 
 /**
@@ -238,7 +341,12 @@ export async function syncRegionSales(db: Db, now = Date.now()): Promise<{ grp: 
       continue;
     }
     saveEntries(db, grp, entries, now);
-    if (grp === 'sea') linkSeaByTitle(db, entries.map((e) => e.nsuid));
+    const nsuids = entries.map((e) => e.nsuid);
+    linkByCode(db, grp, nsuids);
+    if (grp === 'sea') {
+      linkSeaByTitle(db, nsuids);
+      addSeaOnlyGames(db, nsuids, now);
+    }
     const ids = new Set<string>();
     for (const e of entries) {
       const r = get<{ game_id: string }>(db, 'SELECT game_id FROM game_ids WHERE grp = ? AND nsuid = ?', grp, e.nsuid);

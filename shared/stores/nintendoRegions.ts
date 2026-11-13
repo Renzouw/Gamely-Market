@@ -16,6 +16,9 @@ export interface RegionEntry {
   codeKey: string;
   title: string;
   releaseDate?: string;
+  /** Southeast Asia and Japan only: used when a game is sold there and nowhere else we read */
+  publisher?: string;
+  image?: string;
 }
 
 /**
@@ -58,7 +61,10 @@ export const JP_FIELDS = {
   format: 'sform',
   title: 'title',
   date: 'dsdate', // "2025-07-17 00:00:00"
+  publisher: 'maker',
+  image: 'iurl', // a hash; the picture is at JP_IMAGE + hash + ".jpg"
 } as const;
+export const JP_IMAGE = 'https://img-eshop.cdn.nintendo.net/i/';
 export const JP_GAME_FORMS = ['HAC_DL', 'HAC_DOWNLOADABLE', 'BEE_DL', 'BEE_DOWNLOADABLE'];
 const JP_HARDWARE: Record<string, SwitchPlatform> = { '1_HAC': 'switch', '05_BEE': 'switch2' };
 export const JP_PAGE_SIZE = 300;
@@ -85,7 +91,16 @@ export function parseJpItem(it: JpItem): RegionEntry | undefined {
   if (!nsuid || !GAME_NSUID.test(nsuid) || !platform || !JP_GAME_FORMS.includes(it[JP_FIELDS.format] ?? '')) return undefined;
   const key = codeKey(platform, it[JP_FIELDS.code]);
   if (!key) return undefined;
-  return { nsuid, platform, codeKey: key, title: it[JP_FIELDS.title] ?? '', releaseDate: isoDay(it[JP_FIELDS.date]) };
+  const image = it[JP_FIELDS.image];
+  return {
+    nsuid,
+    platform,
+    codeKey: key,
+    title: it[JP_FIELDS.title] ?? '',
+    releaseDate: isoDay(it[JP_FIELDS.date]),
+    publisher: it[JP_FIELDS.publisher] || undefined,
+    image: image && /^[0-9a-f]{16,}$/i.test(image) ? `${JP_IMAGE}${image}.jpg` : undefined,
+  };
 }
 
 /**

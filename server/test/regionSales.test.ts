@@ -6,9 +6,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { titleKey } from '@shared/match';
-import { jpSaleQuery } from '@shared/stores/nintendoRegions';
+import { jpSaleQuery, parseJpItem } from '@shared/stores/nintendoRegions';
 import { all, openDb, run } from '../src/db';
-import { linkSeaByTitle, syncRegionSales } from '../src/ingest/regions';
+import { addSeaOnlyGames, linkByCode, linkSeaByTitle, syncRegionSales } from '../src/ingest/regions';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -131,5 +131,73 @@ describe('regional sale lists', () => {
     const res = await syncRegionSales(db, 1000);
     expect(res.map((r) => r.grp)).toEqual(['japan']);
     expect(all(db, "SELECT source FROM source_status WHERE last_error IS NOT NULL")).toEqual([{ source: 'nintendo-sea-sales' }]);
+  });
+});
+
+describe('the last few Philippine sales', () => {
+  it('picks the game over a bundle Europe lists under the same name, and ignores a code they share', () => {
+    const db = openDb(':memory:');
+    // Europe gave the game and its bundle (ID 7007) one name and the bundle's code
+    game(db, 'sw:eu:70070000026602', 'The Hundred Line -Last Defense Academy-', { platform: 'switch', code: 'HACYBNSLA' });
+    game(db, 'sw:eu:70010000090647', 'The Hundred Line -Last Defense Academy-', { platform: 'switch', code: 'HACYBNSLA' });
+    listing(db, '70010000100001', 'The Hundred Line -Last Defense Academy-', 'HACBE4J', { platform: 'switch' });
+    expect(linkSeaByTitle(db)).toEqual(['sw:eu:70010000090647']);
+    // The shared code stays, and the new one isn't added on top
+    expect(all(db, "SELECT code_key FROM games WHERE id = 'sw:eu:70010000090647'")).toEqual([{ code_key: null }]);
+  });
+
+  it('files a game sold only in Southeast Asia as its own, with its picture and publisher', () => {
+    const db = openDb(':memory:');
+    game(db, 'sw:eu:70010000106370', 'The Binding of Isaac: Repentance+');
+    const e = parseJpItem({ nsuid: '70010000108270', title: 'The Binding of Isaac: Repentance', icode: 'A3R9A', hard: '1_HAC', sform: 'HAC_DL', dsdate: '2025-11-18 00:00:00', maker: 'Nicalis', iurl: 'b8819307659eef09' })!;
+    expect(e).toMatchObject({ publisher: 'Nicalis', image: 'https://img-eshop.cdn.nintendo.net/i/b8819307659eef09.jpg', codeKey: 'HACA3R9' });
+    run(
+      db,
+      "INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, release_date, publisher, image, seen_at) VALUES ('sea', ?, ?, ?, ?, ?, ?, ?, 0)",
+      e.nsuid,
+      e.platform,
+      e.codeKey,
+      e.title,
+      e.releaseDate!,
+      e.publisher!,
+      e.image!,
+    );
+    expect(addSeaOnlyGames(db)).toEqual(['sw:sea:70010000108270']);
+    expect(all(db, "SELECT platform, title, publisher, image, code_key FROM games WHERE id = 'sw:sea:70010000108270'")).toEqual([
+      { platform: 'switch', title: 'The Binding of Isaac: Repentance', publisher: 'Nicalis', image: e.image, code_key: 'HACA3R9' },
+    ]);
+    expect(seaIds(db).map((r) => r.game_id)).toEqual(['sw:sea:70010000108270']);
+    expect(addSeaOnlyGames(db)).toEqual([]);
+  });
+
+  it('doesn’t file one we may already have: same title, or a game with its code not yet linked there', () => {
+    const db = openDb(':memory:');
+    game(db, 'sw:eu:1', 'Same Name', { platform: 'switch' });
+    game(db, 'sw:eu:2', 'Other Name', { platform: 'switch', code: 'HACPAAABA' });
+    game(db, 'sw:eu:3', 'Other Name', { platform: 'switch' }); // two games, so "Same Name" below can't be linked by title either
+    listing(db, '70010000000001', 'Same Name', 'HACZZZZ', { platform: 'switch' });
+    listing(db, '70010000000002', 'Renamed In Asia', 'HACAAAB', { platform: 'switch' });
+    expect(addSeaOnlyGames(db)).toEqual([]);
+  });
+
+  it('files a second edition sharing the code of a game already linked there', () => {
+    const db = openDb(':memory:');
+    game(db, 'sw:eu:70010000083654', 'Kemono Teatime', { platform: 'switch', code: 'HACPBKC4A' });
+    listing(db, '70010000083655', 'Kemono Teatime', 'HACBKC4', { platform: 'switch' });
+    listing(db, '70010000109409', 'Kemono Teatime: Premium Blend for Fans', 'HACBKC4', { platform: 'switch' });
+    // Two listings with its code: the one with the game's own title is it
+    expect(linkByCode(db, 'sea')).toEqual(['sw:eu:70010000083654']);
+    expect(addSeaOnlyGames(db)).toEqual(['sw:sea:70010000109409']);
+    // It doesn't take the code: the base game has it
+    expect(all(db, "SELECT code_key FROM games WHERE id = 'sw:sea:70010000109409'")).toEqual([{ code_key: null }]);
+  });
+
+  it('links a new listing by product code straight away', () => {
+    const db = openDb(':memory:');
+    game(db, 'sw:eu:1', 'ゲーム', { platform: 'switch2', code: 'BEEPAAAAA' });
+    run(db, "INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, seen_at) VALUES ('japan','70010000000001','switch2','BEEAAAA','ゲーム',0)");
+    run(db, "INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, seen_at) VALUES ('japan','70010000000002','switch','HACAAAA','ゲーム',0)");
+    expect(linkByCode(db, 'japan')).toEqual(['sw:eu:1']);
+    expect(all(db, "SELECT nsuid FROM game_ids WHERE grp = 'japan'")).toEqual([{ nsuid: '70010000000001' }]);
   });
 });
