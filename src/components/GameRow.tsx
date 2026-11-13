@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions, type ScrollViewInstance } from 'react-native';
 import type { ApiGame, ApiPrice } from '@shared/api';
-import { KIND_LABEL, listingKind } from '@shared/listing';
+import { KIND_LABEL, listingKind, regionOnly } from '@shared/listing';
 import { endsSoon, formatMoney, timeLeft } from '@shared/pricing';
 import { regionLabel } from '@shared/regions';
 import { usePriceSummary } from '../hooks/queries';
@@ -38,7 +38,7 @@ function GameRowInner({ game, prices, ticker, showPlatform }: Props) {
   const open = useCallback(() => router.push({ pathname: '/game/[key]', params: { key: game.key } }), [game.key]);
   // Upgrade packs and Friend's Passes look like games in a list; say what they are
   const kind = listingKind(game);
-  const tag = kind === 'game' ? undefined : KIND_LABEL[kind].tag;
+  const tag = kind === 'game' ? regionOnly(game.key)?.tag : KIND_LABEL[kind].tag;
   // A recycled row would keep the last game's sideways scroll: put it back to the start
   const tickerRef = useRef<ScrollViewInstance>(null);
   useEffect(() => tickerRef.current?.scrollTo({ x: 0, animated: false }), [game.key]);

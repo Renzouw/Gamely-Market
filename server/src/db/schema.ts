@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS region_catalog (
   app_checked_at INTEGER,
   publisher     TEXT,                      -- Southeast Asia and Japan, for games sold only there
   image         TEXT,
+  sale_seen_at  INTEGER,                   -- last seen in the store's on-sale list (Southeast Asia, Japan)
   seen_at       INTEGER NOT NULL,
   PRIMARY KEY (grp, nsuid)
 );

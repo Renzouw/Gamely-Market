@@ -79,6 +79,9 @@ export const config = {
     recentPages: num(env.REGION_RECENT_PAGES, 3),
     fullEveryMs: num(env.REGION_FULL_DAYS, 7) * 24 * 60 * MIN,
     titlePagesPerRun: num(env.REGION_TITLE_PAGES, 250),
+    /** Hong Kong title pages read for Japan's sales, per catalog run and per deals run */
+    salePagesPerCatalog: num(env.REGION_SALE_PAGES, 150),
+    salePagesPerDeals: num(env.REGION_SALE_PAGES_DEALS, 25),
   },
   /** Cap per device, so one install can't turn the 10-minute refresh into a full sweep */
   maxWatchesPerDevice: num(env.MAX_WATCHES, 300),

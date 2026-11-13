@@ -24,6 +24,19 @@ export const KIND_LABEL: Record<Exclude<ListingKind, 'game'>, { tag: string; exp
   friend: { tag: 'Friend’s Pass', explain: 'A Friend’s Pass: free, but it only lets you play along with a friend who owns the full game.' },
 };
 
+/**
+ * Games Europe and the Americas don't sell, filed under an Asian store's own listing
+ * ("sw:jp:…" from Japan, "sw:sea:…" from Southeast Asia). Japan's are under their
+ * Japanese title, and most are in Japanese only.
+ */
+export function regionOnly(key: string): { tag: string; explain: string } | undefined {
+  if (key.startsWith('sw:jp:'))
+    return { tag: 'Asia only', explain: 'Not sold in Europe or the Americas. Listed in Japan’s eShop under its Japanese title; it may be in Japanese only, and needs an account from a region that sells it.' };
+  if (key.startsWith('sw:sea:'))
+    return { tag: 'Asia only', explain: 'Not sold in Europe or the Americas: only in Asia’s eShops, such as the Philippines.' };
+  return undefined;
+}
+
 /** "Zelda: Tears of the Kingdom – Nintendo Switch 2 Edition" → "Zelda: Tears of the Kingdom" */
 export function withoutEdition(title: string): string {
   return title.replace(/\s*[–—-]\s*Nintendo Switch(™)?\s*2 Edition.*$/i, '').replace(/\s+Nintendo Switch(™)?\s*2 Edition.*$/i, '').trim();

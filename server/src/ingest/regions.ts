@@ -45,6 +45,7 @@ interface CatalogRow {
   app_checked_at: number | null;
   publisher: string | null;
   image: string | null;
+  sale_seen_at: number | null;
 }
 
 /* ---------------------------------- sync ---------------------------------- */
@@ -292,10 +293,28 @@ const BUNDLE_ID = /^sw:(eu|us):7007/;
  * Run after linkSeaByTitle. `only` limits it to these listings. Returns the new games.
  */
 export function addSeaOnlyGames(db: Db, only?: string[], now = Date.now()): string[] {
+  return addRegionOnlyGames(db, 'sea', only, now);
+}
+
+/** The ID prefix of games filed under a region's own listing */
+const OWN_PREFIX = { sea: 'sw:sea:', japan: 'sw:jp:' } as const;
+
+/**
+ * addSeaOnlyGames, and the same for Japan: a game Japan sells that Europe and the
+ * Americas don't (most are sold only in Japan, or in Asia), filed as "sw:jp:<nsuid>"
+ * under its Japanese title. Japan has about 8,000 listings we can't match, so only
+ * ones that have been on sale are filed, and only once Hong Kong's page for the same
+ * product code has been read (its application ID may yet find the game; see
+ * linkJapanByHkApp). Its code then finds it in Hong Kong and Korea too.
+ */
+export function addRegionOnlyGames(db: Db, grp: 'sea' | 'japan', only?: string[], now = Date.now()): string[] {
   const rows = all<CatalogRow>(
     db,
-    `SELECT * FROM region_catalog r WHERE grp = 'sea' AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = 'sea' AND i.nsuid = r.nsuid)`,
+    `SELECT * FROM region_catalog r WHERE grp = ? ${grp === 'japan' ? 'AND sale_seen_at IS NOT NULL' : ''}
+       AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = r.grp AND i.nsuid = r.nsuid)`,
+    grp,
   );
+  const prefix = OWN_PREFIX[grp];
   const wanted = only ? new Set(only) : undefined;
   const ours = gamesByTitle(db);
   const byKey = gamesByKey(db);
@@ -305,23 +324,83 @@ export function addSeaOnlyGames(db: Db, only?: string[], now = Date.now()): stri
     for (const r of rows) {
       if (wanted && !wanted.has(r.nsuid)) continue;
       if (!r.title.trim() || ours.has(`${r.platform}|${titleKey(r.title)}`)) continue;
-      if ((byKey.get(r.code_key) ?? []).some((g) => !linkedGroups(db, g.id).has('sea'))) continue;
-      const id = `sw:sea:${r.nsuid}`;
+      if ((byKey.get(r.code_key) ?? []).some((g) => !linkedGroups(db, g.id).has(grp))) continue;
+      if (grp === 'japan' && hkTwinUndecided(db, r)) continue;
+      const id = `${prefix}${r.nsuid}`;
       upsertGame(db, { id, platform: r.platform as GameRow['platform'], title: r.title, image: r.image ?? undefined, publisher: r.publisher ?? undefined, releaseDate: r.release_date ?? undefined }, now);
-      // Its code finds it in Japan, Hong Kong and Korea at the next linking, unless another game has it
+      // Its code finds it in the other regions at the next linking, unless another game has it
       if (!counts.keys.has(r.code_key)) run(db, 'UPDATE games SET code_key = ? WHERE id = ?', r.code_key, id);
       counts.keys.set(r.code_key, (counts.keys.get(r.code_key) ?? 0) + 1);
-      attachNsuid(db, 'sea', r.nsuid, id, 'source');
+      attachNsuid(db, grp, r.nsuid, id, 'source');
       added.push(id);
     }
     // Ones filed earlier follow their listing's name and picture (only written when changed)
     if (!only) {
-      for (const r of all<CatalogRow>(db, "SELECT r.* FROM region_catalog r JOIN games g ON g.id = 'sw:sea:' || r.nsuid WHERE r.grp = 'sea'")) {
-        upsertGame(db, { id: `sw:sea:${r.nsuid}`, platform: r.platform as GameRow['platform'], title: r.title, image: r.image ?? undefined, publisher: r.publisher ?? undefined }, now);
+      for (const r of all<CatalogRow>(db, `SELECT r.* FROM region_catalog r JOIN games g ON g.id = '${prefix}' || r.nsuid WHERE r.grp = ?`, grp)) {
+        upsertGame(db, { id: `${prefix}${r.nsuid}`, platform: r.platform as GameRow['platform'], title: r.title, image: r.image ?? undefined, publisher: r.publisher ?? undefined }, now);
       }
     }
   });
   return added;
+}
+
+/**
+ * Whether Hong Kong may still tell us which game a Japanese listing is: it lists the
+ * same product code under a listing that's linked to a game, or whose page (with the
+ * application ID) we haven't read yet.
+ */
+function hkTwinUndecided(db: Db, r: CatalogRow): boolean {
+  return !!get(
+    db,
+    `SELECT 1 AS x FROM region_catalog h WHERE h.grp = 'hongkong' AND h.code_key = ?
+       AND (h.app_checked_at IS NULL OR EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = 'hongkong' AND i.nsuid = h.nsuid))`,
+    r.code_key,
+  );
+}
+
+/**
+ * Japan's sales that no product code of ours finds, found through Hong Kong: Japan and
+ * Hong Kong share product codes, and Hong Kong's title page names the application ID,
+ * the one ID that's the same everywhere (Japan's own pages sit behind a queue). When
+ * exactly one game of ours has that ID on that platform, and it has neither a Hong Kong
+ * nor a Japan link yet, both listings are its. Reads at most `pages` title pages.
+ * Returns the games that gained links.
+ */
+export async function linkJapanByHkApp(db: Db, pages: number, only?: string[], now = Date.now()): Promise<string[]> {
+  const rows = all<CatalogRow>(
+    db,
+    `SELECT * FROM region_catalog r WHERE grp = 'japan' AND sale_seen_at IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM game_ids i WHERE i.grp = 'japan' AND i.nsuid = r.nsuid)
+     ORDER BY sale_seen_at DESC`,
+  );
+  const wanted = only ? new Set(only) : undefined;
+  const counts = idCounts(db);
+  const budget: Budget = { pages, errors: 0, fetched: 0 };
+  const linked: string[] = [];
+  for (const r of rows) {
+    if (wanted && !wanted.has(r.nsuid)) continue;
+    const hk = all<CatalogRow>(db, "SELECT * FROM region_catalog WHERE grp = 'hongkong' AND code_key = ? AND platform = ?", r.code_key, r.platform);
+    if (hk.length !== 1 || isLinked(db, 'hongkong', hk[0].nsuid)) continue;
+    if (!hk[0].app_checked_at && !(await fillAppIds(db, hk, budget, now))) break;
+    const app = hk[0].app_id;
+    if (!app || counts.apps.get(`${r.platform}:${app}`) !== 1) continue;
+    const g = get<GameRow>(db, "SELECT * FROM games WHERE app_id = ? AND platform = ? AND id NOT LIKE 'sw:eu:7005%'", app, r.platform);
+    if (!g) continue;
+    const have = linkedGroups(db, g.id);
+    if (have.has('hongkong') || have.has('japan')) continue;
+    tx(db, () => {
+      attachNsuid(db, 'hongkong', hk[0].nsuid, g.id, 'application_id');
+      attachNsuid(db, 'japan', r.nsuid, g.id, 'application_id');
+      // The code then finds it in Korea and Southeast Asia, unless another game has it
+      if (!keyOf(g) && !counts.keys.has(r.code_key)) {
+        counts.keys.set(r.code_key, 1);
+        run(db, 'UPDATE games SET code_key = ?, region_checked_at = NULL WHERE id = ?', r.code_key, g.id);
+      }
+    });
+    linked.push(g.id);
+  }
+  if (budget.fetched && budget.errors < 5) sourceOk(db, 'nintendo-hk-titles', budget.fetched);
+  return linked;
 }
 
 /**
@@ -342,11 +421,11 @@ export async function syncRegionSales(db: Db, now = Date.now()): Promise<{ grp: 
     }
     saveEntries(db, grp, entries, now);
     const nsuids = entries.map((e) => e.nsuid);
+    tx(db, () => nsuids.forEach((n) => run(db, 'UPDATE region_catalog SET sale_seen_at = ? WHERE grp = ? AND nsuid = ?', now, grp, n)));
     linkByCode(db, grp, nsuids);
-    if (grp === 'sea') {
-      linkSeaByTitle(db, nsuids);
-      addSeaOnlyGames(db, nsuids, now);
-    }
+    if (grp === 'sea') linkSeaByTitle(db, nsuids);
+    if (grp === 'japan') await linkJapanByHkApp(db, config.regions.salePagesPerDeals, nsuids, now);
+    addRegionOnlyGames(db, grp, nsuids, now);
     const ids = new Set<string>();
     for (const e of entries) {
       const r = get<{ game_id: string }>(db, 'SELECT game_id FROM game_ids WHERE grp = ? AND nsuid = ?', grp, e.nsuid);

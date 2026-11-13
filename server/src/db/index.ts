@@ -26,6 +26,7 @@ const COLUMNS: [table: string, column: string, ddl: string][] = [
   ['games', 'region_checked_at', 'INTEGER'], // last look for a Japan/Hong Kong/Korea match
   ['region_catalog', 'publisher', 'TEXT'], // for games sold only in Southeast Asia
   ['region_catalog', 'image', 'TEXT'],
+  ['region_catalog', 'sale_seen_at', 'INTEGER'], // Japan's games of its own are filed once they've been on sale
 ];
 
 /** Columns that are no longer used. */

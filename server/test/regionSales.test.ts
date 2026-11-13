@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { titleKey } from '@shared/match';
 import { jpSaleQuery, parseJpItem } from '@shared/stores/nintendoRegions';
 import { all, openDb, run } from '../src/db';
-import { addSeaOnlyGames, linkByCode, linkSeaByTitle, syncRegionSales } from '../src/ingest/regions';
+import { addRegionOnlyGames, addSeaOnlyGames, linkByCode, linkJapanByHkApp, linkSeaByTitle, syncRegionSales } from '../src/ingest/regions';
+import { regionOnly } from '@shared/listing';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -223,5 +224,67 @@ describe('pre-orders', () => {
     );
     expect(prices.get('70010000132563')).toMatchObject({ regular: { amount: 1790 }, sale: { amount: 1342 }, discountPercent: 25 });
     expect(prices.has('70010000000001')).toBe(false);
+  });
+});
+
+describe('Japan’s games of its own', () => {
+  const jp = (db: Db, nsuid: string, title: string, codeKey: string, onSale = true) =>
+    run(
+      db,
+      "INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, publisher, image, sale_seen_at, seen_at) VALUES ('japan', ?, 'switch', ?, ?, 'アトラス', 'https://img-eshop.cdn.nintendo.net/i/abc.jpg', ?, 0)",
+      nsuid,
+      codeKey,
+      title,
+      onSale ? 1000 : null,
+    );
+  const hk = (db: Db, nsuid: string, codeKey: string, appId: string | null, checked = true) =>
+    run(db, "INSERT INTO region_catalog (grp, nsuid, platform, code_key, title, app_id, app_checked_at, seen_at) VALUES ('hongkong', ?, 'switch', ?, '遊戲', ?, ?, 0)", nsuid, codeKey, appId, checked ? 1 : null);
+
+  it('files one that’s been on sale, under its Japanese title, and tags it', () => {
+    const db = openDb(':memory:');
+    jp(db, '70010000000001', '世界樹の迷宮Ⅲ', 'HACAAAA');
+    jp(db, '70010000000002', '定価のまま', 'HACAAAB', false); // never on sale: not yet
+    expect(addRegionOnlyGames(db, 'japan')).toEqual(['sw:jp:70010000000001']);
+    expect(all(db, "SELECT title, publisher, code_key FROM games WHERE id = 'sw:jp:70010000000001'")).toEqual([{ title: '世界樹の迷宮Ⅲ', publisher: 'アトラス', code_key: 'HACAAAA' }]);
+    expect(regionOnly('sw:jp:70010000000001')?.tag).toBe('Asia only');
+    expect(regionOnly('sw:sea:70010000000001')?.tag).toBe('Asia only');
+    expect(regionOnly('sw:eu:70010000000001')).toBeUndefined();
+  });
+
+  it('waits while Hong Kong’s page for the same code is unread, then files it if the ID finds nothing', () => {
+    const db = openDb(':memory:');
+    jp(db, '70010000000001', 'ゲーム', 'HACAAAA');
+    hk(db, '70010000000011', 'HACAAAA', null, false);
+    expect(addRegionOnlyGames(db, 'japan')).toEqual([]);
+    run(db, "UPDATE region_catalog SET app_checked_at = 1, app_id = '0100aaaaaaaaa000' WHERE grp = 'hongkong'");
+    expect(addRegionOnlyGames(db, 'japan')).toEqual(['sw:jp:70010000000001']);
+  });
+
+  it('finds a game of ours through Hong Kong’s application ID, and gives both listings to it', async () => {
+    const db = openDb(':memory:');
+    game(db, 'sw:eu:70010000082983', 'LEGO® Voyagers', { platform: 'switch' });
+    run(db, "UPDATE games SET app_id = '0100bbbbbbbbb000' WHERE id = 'sw:eu:70010000082983'");
+    jp(db, '70010000000001', 'LEGO® ボイジャーズ', 'HACAAAA');
+    hk(db, '70010000000011', 'HACAAAA', '0100bbbbbbbbb000');
+    expect(await linkJapanByHkApp(db, 10)).toEqual(['sw:eu:70010000082983']);
+    expect(all(db, "SELECT grp, nsuid FROM game_ids ORDER BY grp")).toEqual([
+      { grp: 'hongkong', nsuid: '70010000000011' },
+      { grp: 'japan', nsuid: '70010000000001' },
+    ]);
+    expect(all(db, "SELECT code_key FROM games WHERE id = 'sw:eu:70010000082983'")).toEqual([{ code_key: 'HACAAAA' }]);
+    expect(addRegionOnlyGames(db, 'japan')).toEqual([]);
+  });
+
+  it('reads Hong Kong’s page when it hasn’t yet, within the page budget', async () => {
+    const db = openDb(':memory:');
+    jp(db, '70010000000001', 'ゲーム', 'HACAAAA');
+    jp(db, '70010000000002', 'ゲーム2', 'HACAAAB');
+    hk(db, '70010000000011', 'HACAAAA', null, false);
+    hk(db, '70010000000012', 'HACAAAB', null, false);
+    const fetchMock = vi.fn(async () => new Response('gone', { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await linkJapanByHkApp(db, 1)).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(all(db, "SELECT count(*) AS n FROM region_catalog WHERE grp = 'hongkong' AND app_checked_at IS NOT NULL")).toEqual([{ n: 1 }]);
   });
 });
